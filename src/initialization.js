@@ -1,5 +1,5 @@
 var initialization = {
-    name: 'insertSDKNameHere',
+    name: 'CleverTap',
 /*  ****** Fill out initForwarder to load your SDK ******
     Note that not all arguments may apply to your SDK initialization.
     These are passed from mParticle, but leave them even if they are not being used.
@@ -10,28 +10,26 @@ var initialization = {
 */
     initForwarder: function(forwarderSettings, testMode, userAttributes, userIdentities, processEvent, eventQueue, isInitialized, common, appVersion, appName, customFlags, clientId) {
         /* `forwarderSettings` contains your SDK specific settings such as apiKey that your customer needs in order to initialize your SDK properly */
-
         if (!testMode) {
-            /* Load your Web SDK here using a variant of your snippet from your readme that your customers would generally put into their <head> tags
-               Generally, our integrations create script tags and append them to the <head>. Please follow the following format as a guide:
-            */
-
-            // var clientScript = document.createElement('script');
-            // clientScript.type = 'text/javascript';
-            // clientScript.async = true;
-            // clientScript.src = 'https://www.clientscript.com/static/clientSDK.js';   // <---- Update this to be your script
-            // (document.getElementsByTagName('head')[0] || document.getElementsByTagName('body')[0]).appendChild(clientScript);
-            // clientScript.onload = function() {
-            //     if (clientSDKObject && eventQueue.length > 0) {
-            //         // Process any events that may have been queued up while forwarder was being initialized.
-            //         for (var i = 0; i < eventQueue.length; i++) {
-            //             processEvent(eventQueue[i]);
-            //         }
-            //          // now that each queued event is processed, we empty the eventQueue
-            //         eventQueue = [];
-            //     }
+            var clevertapScript = document.createElement('script');
+            clevertapScript.type = 'text/javascript';
+            clevertapScript.async = true;
+            clevertapScript.src = ('https:' == document.location.protocol ? 'https://d2r1yp2w7bby2u.cloudfront.net' : 'http://static.clevertap.com') + '/js/clevertap.min.js';
+            (document.getElementsByTagName('head')[0] || document.getElementsByTagName('body')[0]).appendChild(clevertapScript);               
+            clevertapScript.onload = function() {
+                // if (clientSDKObject && eventQueue.length > 0) {
+                //     // Process any events that may have been queued up while forwarder was being initialized.
+                //     for (var i = 0; i < eventQueue.length; i++) {
+                //         processEvent(eventQueue[i]);
+                //     }
+                //      // now that each queued event is processed, we empty the eventQueue
+                //     eventQueue = [];
+                // }
             //    clientSDKObject.initialize(forwarderSettings.apiKey);
-            // };
+                var accountID = forwarderSettings.AccountID;
+                var clevertap = {event:[], profile:[], account:[], onUserLogin:[], notifications:[], privacy:[]};
+                clevertap.account.push({"id": accountID});
+            };      
         } else {
             // For testing, you should fill out this section in order to ensure any required initialization calls are made,
             // clientSDKObject.initialize(forwarderSettings.apiKey)

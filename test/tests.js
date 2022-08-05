@@ -88,54 +88,54 @@ describe('XYZ Forwarder', function () {
         var self = this;
 
         // create properties for each type of event you want tracked, see below for examples
-        this.trackCustomEventCalled = false;
-        this.logPurchaseEventCalled = false;
-        this.initializeCalled = false;
+        // this.trackCustomEventCalled = false;
+        // this.logPurchaseEventCalled = false;
+        // this.initializeCalled = false;
 
-        this.trackCustomName = null;
-        this.logPurchaseName = null;
-        this.apiKey = null;
-        this.appId = null;
-        this.userId = null;
-        this.userAttributes = {};
-        this.userIdField = null;
+        // this.trackCustomName = null;
+        // this.logPurchaseName = null;
+        // this.apiKey = null;
+        // this.appId = null;
+        // this.userId = null;
+        // this.userAttributes = {};
+        // this.userIdField = null;
 
-        this.eventProperties = [];
-        this.purchaseEventProperties = [];
+        // this.eventProperties = [];
+        // this.purchaseEventProperties = [];
 
         // stub your different methods to ensure they are being called properly
-        this.initialize = function(appId, apiKey) {
+        this.initialize = function(accountID, region) {
             self.initializeCalled = true;
-            self.apiKey = apiKey;
-            self.appId = appId;
+            self.accountID = accountID;
+            self.region = region;
         };
 
-        this.stubbedTrackingMethod = function(name, eventProperties){
-            self.trackCustomEventCalled = true;
-            self.trackCustomName = name;
-            self.eventProperties.push(eventProperties);
-            // Return true to indicate event should be reported
-            return true;
-        };
+        // this.stubbedTrackingMethod = function(name, eventProperties){
+        //     self.trackCustomEventCalled = true;
+        //     self.trackCustomName = name;
+        //     self.eventProperties.push(eventProperties);
+        //     // Return true to indicate event should be reported
+        //     return true;
+        // };
 
-        this.stubbedUserAttributeSettingMethod = function(userAttributes) {
-            self.userId = id;
-            userAttributes = userAttributes || {};
-            if (Object.keys(userAttributes).length) {
-                for (var key in userAttributes) {
-                    if (userAttributes[key] === null) {
-                        delete self.userAttributes[key];
-                    }
-                    else {
-                        self.userAttributes[key] = userAttributes[key];
-                    }
-                }
-            }
-        };
+        // this.stubbedUserAttributeSettingMethod = function(userAttributes) {
+        //     self.userId = id;
+        //     userAttributes = userAttributes || {};
+        //     if (Object.keys(userAttributes).length) {
+        //         for (var key in userAttributes) {
+        //             if (userAttributes[key] === null) {
+        //                 delete self.userAttributes[key];
+        //             }
+        //             else {
+        //                 self.userAttributes[key] = userAttributes[key];
+        //             }
+        //         }
+        //     }
+        // };
 
-        this.stubbedUserLoginMethod = function(id) {
-            self.userId = id;
-        };
+        // this.stubbedUserLoginMethod = function(id) {
+        //     self.userId = id;
+        // };
     };
 
     before(function () {
@@ -146,9 +146,8 @@ describe('XYZ Forwarder', function () {
         window.MockXYZForwarder = new MockXYZForwarder();
         // Include any specific settings that is required for initializing your SDK here
         var sdkSettings = {
-            clientKey: '123456',
-            appId: 'abcde',
-            userIdField: 'customerId'
+            AccountID: '',
+            Region: "us1"
         };
         // You may require userAttributes or userIdentities to be passed into initialization
         var userAttributes = {
