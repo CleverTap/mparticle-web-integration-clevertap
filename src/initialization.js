@@ -17,6 +17,14 @@ var initialization = {
             clevertapScript.src = ('https:' == document.location.protocol ? 'https://d2r1yp2w7bby2u.cloudfront.net' : 'http://static.clevertap.com') + '/js/clevertap.min.js';
             (document.getElementsByTagName('head')[0] || document.getElementsByTagName('body')[0]).appendChild(clevertapScript);               
             clevertapScript.onload = function() {
+
+                var accountID = forwarderSettings.AccountID;
+                var regionCode = forwarderSettings.Region;
+                var clevertap = {event:[], profile:[], account:[], onUserLogin:[], region:regionCode, notifications:[], privacy:[]};
+                clevertap.account.push({"id": accountID});
+                clevertap.privacy.push({optOut: false}); //set the flag to true, if the user of the device opts out of sharing their data
+                clevertap.privacy.push({useIP: true});
+                debugger;
                 // if (clientSDKObject && eventQueue.length > 0) {
                 //     // Process any events that may have been queued up while forwarder was being initialized.
                 //     for (var i = 0; i < eventQueue.length; i++) {
@@ -26,9 +34,7 @@ var initialization = {
                 //     eventQueue = [];
                 // }
             //    clientSDKObject.initialize(forwarderSettings.apiKey);
-                var accountID = forwarderSettings.AccountID;
-                var clevertap = {event:[], profile:[], account:[], onUserLogin:[], notifications:[], privacy:[]};
-                clevertap.account.push({"id": accountID});
+                
             };      
         } else {
             // For testing, you should fill out this section in order to ensure any required initialization calls are made,
