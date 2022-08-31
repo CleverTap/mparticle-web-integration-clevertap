@@ -167,36 +167,36 @@ describe('XYZ Forwarder', function () {
     });
 
     it('should log event', function(done) {
-        // mParticle.forwarder.process({
-        //     EventDataType: MessageType.PageEvent,
-        //     EventName: 'Test Event',
-        //     EventAttributes: {
-        //         label: 'label',
-        //         value: 200,
-        //         category: 'category'
-        //     }
-        // });
+        mParticle.forwarder.process({
+            EventDataType: MessageType.PageEvent,
+            EventName: 'Test Event',
+            EventAttributes: {
+                label: 'label',
+                value: 200,
+                category: 'category'
+            }
+        });
         
-        // window.MockXYZForwarder.eventProperties[0].label.should.equal('label');
-        // window.MockXYZForwarder.eventProperties[0].value.should.equal(200);
+        window.MockXYZForwarder.eventProperties[0].label.should.equal('label');
+        window.MockXYZForwarder.eventProperties[0].value.should.equal(200);
 
         done();
     });
 
     it('should log page view', function(done) {
-        // mParticle.forwarder.process({
-        //     EventDataType: MessageType.PageView,
-        //     EventName: 'test name',
-        //     EventAttributes: {
-        //         attr1: 'test1',
-        //         attr2: 'test2'
-        //     }
-        // });
-        //
-        // window.MockXYZForwarder.trackCustomEventCalled.should.equal(true);
-        // window.MockXYZForwarder.trackCustomName.should.equal('test name');
-        // window.MockXYZForwarder.eventProperties[0].attr1.should.equal('test1');
-        // window.MockXYZForwarder.eventProperties[0].attr2.should.equal('test2');
+        mParticle.forwarder.process({
+            EventDataType: MessageType.PageView,
+            EventName: 'test name',
+            EventAttributes: {
+                attr1: 'test1',
+                attr2: 'test2'
+            }
+        });
+        
+        window.MockXYZForwarder.trackCustomEventCalled.should.equal(true);
+        window.MockXYZForwarder.trackCustomName.should.equal('test name');
+        window.MockXYZForwarder.eventProperties[0].attr1.should.equal('test1');
+        window.MockXYZForwarder.eventProperties[0].attr2.should.equal('test2');
 
         done();
     });
@@ -247,28 +247,28 @@ describe('XYZ Forwarder', function () {
     });
 
     it('should set customer id user identity on user identity change', function(done) {
-        // var fakeUserStub = {
-        //     getUserIdentities: function() {
-        //         return {
-        //             userIdentities: {
-        //                 customerid: '123'
-        //             }
-        //         };
-        //     },
-        //     getMPID: function() {
-        //         return 'testMPID';
-        //     },
-        //     setUserAttribute: function() {
-        //
-        //     },
-        //     removeUserAttribute: function() {
-        //
-        //     }
-        // };
-        //
-        // mParticle.forwarder.onUserIdentified(fakeUserStub);
-        //
-        // window.MockXYZForwarder.userId.should.equal('123');
+        var fakeUserStub = {
+            getUserIdentities: function() {
+                return {
+                    userIdentities: {
+                        customerid: '123'
+                    }
+                };
+            },
+            getMPID: function() {
+                return 'testMPID';
+            },
+            setUserAttribute: function() {
+        
+            },
+            removeUserAttribute: function() {
+        
+            }
+        };
+        
+        mParticle.forwarder.onUserIdentified(fakeUserStub);
+        
+        window.MockXYZForwarder.userId.should.equal('123');
 
         done();
     });
