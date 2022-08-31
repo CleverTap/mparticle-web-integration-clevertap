@@ -247,28 +247,28 @@ describe('XYZ Forwarder', function () {
     });
 
     it('should set customer id user identity on user identity change', function(done) {
-        // var fakeUserStub = {
-        //     getUserIdentities: function() {
-        //         return {
-        //             userIdentities: {
-        //                 customerid: '123'
-        //             }
-        //         };
-        //     },
-        //     getMPID: function() {
-        //         return 'testMPID';
-        //     },
-        //     setUserAttribute: function() {
-        //
-        //     },
-        //     removeUserAttribute: function() {
-        //
-        //     }
-        // };
-        //
-        // mParticle.forwarder.onUserIdentified(fakeUserStub);
-        //
-        // window.MockXYZForwarder.userId.should.equal('123');
+        var fakeUserStub = {
+            getUserIdentities: function() {
+                return {
+                    userIdentities: {
+                        customerid: '123'
+                    }
+                };
+            },
+            getMPID: function() {
+                return 'testMPID';
+            },
+            setUserAttribute: function() {
+        
+            },
+            removeUserAttribute: function() {
+        
+            }
+        };
+        
+        mParticle.forwarder.onUserIdentified(fakeUserStub);
+        
+        window.MockXYZForwarder.userId.should.equal('123');
 
         done();
     });
