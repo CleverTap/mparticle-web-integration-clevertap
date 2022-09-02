@@ -29,7 +29,7 @@ UserAttributeHandler.prototype.onSetUserAttribute = function(
             attributesDict['Name'] = value;
             break;
         default:
-            return;
+            attributesDict[key] = value;
     }
     var clevertapAttributes = {};
     clevertapAttributes["Site"] = attributesDict;
