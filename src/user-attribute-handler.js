@@ -18,7 +18,23 @@ UserAttributeHandler.prototype.onSetUserAttribute = function(
     key,
     value,
     mParticleUser
-) {};
+) {
+    var attributesDict = {}
+    key = key.toString().toLowerCase();
+    switch (key) {
+        case '$gender':
+            attributesDict['Gender'] = value;
+            break;
+        case '$firstname':
+            attributesDict['Name'] = value;
+            break;
+        default:
+            attributesDict[key] = value;
+    }
+    var clevertapAttributes = {};
+    clevertapAttributes["Site"] = attributesDict;
+    window.clevertap.profile.push(clevertapAttributes);
+};
 UserAttributeHandler.prototype.onConsentStateUpdated = function(
     oldState,
     newState,
