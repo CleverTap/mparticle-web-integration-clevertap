@@ -29,6 +29,6 @@
   },
   "dependencies": {
     "@mparticle/web-sdk": "^2.12.2",
-    "clevertap-web-sdk": "^1.2.1"
+    "clevertap-web-sdk": "1.3.0"
   }
 }

@@ -13,7 +13,7 @@ var initialization = {
         if (!testMode) {
             var clevertap = require('clevertap-web-sdk')
             window.clevertap.init(forwarderSettings.AccountID, forwarderSettings.Region)   
-        } else {
+    } else {
             // For testing, you should fill out this section in order to ensure any required initialization calls are made,
             // clientSDKObject.initialize(forwarderSettings.apiKey)
         }
