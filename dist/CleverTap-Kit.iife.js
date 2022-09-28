@@ -6483,8 +6483,8 @@ var CleverTapKit = (function (exports) {
         initForwarder: function(forwarderSettings, testMode, userAttributes, userIdentities, processEvent, eventQueue, isInitialized, common, appVersion, appName, customFlags, clientId) {
             /* `forwarderSettings` contains your SDK specific settings such as apiKey that your customer needs in order to initialize your SDK properly */
             if (!testMode) {
-                window.clevertap.init(forwarderSettings.AccountID, forwarderSettings.Region);   
-            }
+                window.clevertap.init(forwarderSettings.accountID, forwarderSettings.region);   
+        }
         }
     };
 

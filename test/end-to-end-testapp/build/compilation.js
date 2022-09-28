@@ -6483,8 +6483,8 @@ var CleverTapKit = (function (exports) {
         initForwarder: function(forwarderSettings, testMode, userAttributes, userIdentities, processEvent, eventQueue, isInitialized, common, appVersion, appName, customFlags, clientId) {
             /* `forwarderSettings` contains your SDK specific settings such as apiKey that your customer needs in order to initialize your SDK properly */
             if (!testMode) {
-                window.clevertap.init(forwarderSettings.AccountID, forwarderSettings.Region);   
-            }
+                window.clevertap.init(forwarderSettings.accountID, forwarderSettings.region);   
+        }
         }
     };
 
@@ -7030,8 +7030,8 @@ var CleverTapKit = (function (exports) {
     }
 
     var SDKsettings = {
-        AccountID: '445-8W7-956Z',
-        Region: "us1"
+        accountID: '445-8W7-956Z',
+        region: "us1"
         /* fill in SDKsettings with any particular settings or options your sdk requires in order to
         initialize, this may be apiKey, projectId, primaryCustomerType, etc. These are passed
         into the src/initialization.js file as the
