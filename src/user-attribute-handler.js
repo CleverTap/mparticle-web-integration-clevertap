@@ -19,7 +19,7 @@ UserAttributeHandler.prototype.onSetUserAttribute = function(
     value,
     mParticleUser
 ) {
-    if (!common.forwardWebRequestsServerSide) {
+    if (common.forwardWebRequestsServerSide) return;
         var attributesDict = {}
         key = key.toString().toLowerCase();
         switch (key) {
