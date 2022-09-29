@@ -50,20 +50,22 @@ IdentityHandler.prototype.onModifyComplete = function (
 };
 
 function forwardUserIdentities(mParticleUser) {
-    var userIdentities = mParticleUser.getUserIdentities().userIdentities;
-    var identitiesDict = {};
-    if (userIdentities.customerid !== null) {
-        identitiesDict["Identity"] = userIdentities.customerid;
+    if (!common.forwardWebRequestsServerSide) {
+        var userIdentities = mParticleUser.getUserIdentities().userIdentities;
+        var identitiesDict = {};
+        if (userIdentities.customerid !== null) {
+            identitiesDict["Identity"] = userIdentities.customerid;
+        }
+        if (userIdentities.email !== null) {
+            identitiesDict["Email"] = userIdentities.email;
+        }
+        if (userIdentities.mobile_number !== null) {
+            identitiesDict["Phone"] = userIdentities.mobile_number;
+        }
+        var clevertapIDs = {};
+        clevertapIDs["Site"] = identitiesDict;
+        window.clevertap.onUserLogin.push(clevertapIDs);
     }
-    if (userIdentities.email !== null) {
-        identitiesDict["Email"] = userIdentities.email;
-    }
-    if (userIdentities.mobile_number !== null) {
-        identitiesDict["Phone"] = userIdentities.mobile_number;
-    }
-    var clevertapIDs = {};
-    clevertapIDs["Site"] = identitiesDict;
-    window.clevertap.onUserLogin.push(clevertapIDs);
 }
 
 /*  In previous versions of the mParticle web SDK, setting user identities on
