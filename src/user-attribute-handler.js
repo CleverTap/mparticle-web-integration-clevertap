@@ -19,21 +19,23 @@ UserAttributeHandler.prototype.onSetUserAttribute = function(
     value,
     mParticleUser
 ) {
-    var attributesDict = {}
-    key = key.toString().toLowerCase();
-    switch (key) {
-        case '$gender':
-            attributesDict['Gender'] = value;
-            break;
-        case '$firstname':
-            attributesDict['Name'] = value;
-            break;
-        default:
-            attributesDict[key] = value;
+    if (common.forwardWebRequestsServerSide) return;
+        var attributesDict = {}
+        key = key.toString().toLowerCase();
+        switch (key) {
+            case '$gender':
+                attributesDict['Gender'] = value;
+                break;
+            case '$firstname':
+                attributesDict['Name'] = value;
+                break;
+            default:
+                attributesDict[key] = value;
+        }
+        var clevertapAttributes = {};
+        clevertapAttributes["Site"] = attributesDict;
+        window.clevertap.profile.push(clevertapAttributes);
     }
-    var clevertapAttributes = {};
-    clevertapAttributes["Site"] = attributesDict;
-    window.clevertap.profile.push(clevertapAttributes);
 };
 UserAttributeHandler.prototype.onConsentStateUpdated = function(
     oldState,

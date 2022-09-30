@@ -17,18 +17,27 @@ function EventHandler(common) {
     this.common = common || {};
 }
 EventHandler.prototype.logEvent = function(event) {
-    if (event.EventAttributes == null) {
-        clevertap.event.push(event.EventName)
-    } else {
-        clevertap.event.push(event.EventName, event.EventAttributes);
+    if (!common.forwardWebRequestsServerSide) {
+        if (event.EventAttributes == null) {
+            clevertap.event.push(event.EventName)
+        } else {
+            clevertap.event.push(event.EventName, event.EventAttributes);
+        }
+        return true;
     }
+    return false;
 };
 EventHandler.prototype.logPageView = function(event) {
-    if (event.EventAttributes == null) {
-        clevertap.event.push(event.EventName)
-    } else {
-        clevertap.event.push(event.EventName, event.EventAttributes);
+    if (!common.forwardWebRequestsServerSide) {
+        if (event.EventAttributes == null) {
+            clevertap.event.push(event.EventName)
+        } else {
+            clevertap.event.push(event.EventName, event.EventAttributes);
+        }
+        return true;
     }
+    return false;
+
 };
 
 module.exports = EventHandler;

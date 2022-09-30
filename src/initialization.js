@@ -11,8 +11,11 @@ var initialization = {
     initForwarder: function(forwarderSettings, testMode, userAttributes, userIdentities, processEvent, eventQueue, isInitialized, common, appVersion, appName, customFlags, clientId) {
         /* `forwarderSettings` contains your SDK specific settings such as apiKey that your customer needs in order to initialize your SDK properly */
         if (!testMode) {
-            var clevertap = require('clevertap-web-sdk')
-            window.clevertap.init(forwarderSettings.accountID, forwarderSettings.region)   
+            common.forwardWebRequestsServerSide = forwarderSettings.forwardWebRequestsServerSide === 'True'
+            if (!forwarderSettings.forwardWebRequestsServerSide) {
+                var clevertap = require('clevertap-web-sdk')
+                window.clevertap.init(forwarderSettings.accountID, forwarderSettings.region) 
+            }
     } else {
             // For testing, you should fill out this section in order to ensure any required initialization calls are made,
             // clientSDKObject.initialize(forwarderSettings.apiKey)
