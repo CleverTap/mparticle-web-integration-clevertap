@@ -9,7 +9,7 @@ CommerceHandler.prototype.logCommerceEvent = function (event) {
             for (var i = 0; i < event.ProductAction.ProductList.length; i++) {
                 var productDict = {}
                 for (var key in event.ProductAction.ProductList[i]) {
-                    productDict[key] = event.ProductAction.ProductLgitist[i][key];
+                    productDict[key] = event.ProductAction.ProductList[i][key];
                 }
                 itemsArray.push(productDict)
             }
