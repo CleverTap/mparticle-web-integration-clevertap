@@ -19,7 +19,7 @@ UserAttributeHandler.prototype.onSetUserAttribute = function(
     value,
     mParticleUser
 ) {
-    if (common.forwardWebRequestsServerSide) return;
+    if (this.common.forwardWebRequestsServerSide) return;
         var attributesDict = {}
         key = key.toString().toLowerCase();
         switch (key) {
@@ -36,7 +36,6 @@ UserAttributeHandler.prototype.onSetUserAttribute = function(
         clevertapAttributes["Site"] = attributesDict;
         window.clevertap.profile.push(clevertapAttributes);
     }
-};
 UserAttributeHandler.prototype.onConsentStateUpdated = function(
     oldState,
     newState,

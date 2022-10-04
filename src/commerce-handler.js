@@ -3,7 +3,7 @@ function CommerceHandler(common) {
 }
 
 CommerceHandler.prototype.logCommerceEvent = function (event) {
-    if (!common.forwardWebRequestsServerSide) {
+    if (!this.common.forwardWebRequestsServerSide) {
         if (event.EventCategory == 16 && event.ProductAction) {
             var itemsArray = [];
             for (var i = 0; i < event.ProductAction.ProductList.length; i++) {

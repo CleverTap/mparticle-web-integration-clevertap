@@ -50,7 +50,7 @@ IdentityHandler.prototype.onModifyComplete = function (
 };
 
 function forwardUserIdentities(mParticleUser) {
-    if (!common.forwardWebRequestsServerSide) {
+    if (!this.common.forwardWebRequestsServerSide) {
         var userIdentities = mParticleUser.getUserIdentities().userIdentities;
         var identitiesDict = {};
         if (userIdentities.customerid !== null) {
