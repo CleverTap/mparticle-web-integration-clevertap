@@ -17,7 +17,7 @@ function EventHandler(common) {
     this.common = common || {};
 }
 EventHandler.prototype.logEvent = function(event) {
-    if (!common.forwardWebRequestsServerSide) {
+    if (!this.common.forwardWebRequestsServerSide) {
         if (event.EventAttributes == null) {
             clevertap.event.push(event.EventName)
         } else {
@@ -28,7 +28,7 @@ EventHandler.prototype.logEvent = function(event) {
     return false;
 };
 EventHandler.prototype.logPageView = function(event) {
-    if (!common.forwardWebRequestsServerSide) {
+    if (!this.common.forwardWebRequestsServerSide) {
         if (event.EventAttributes == null) {
             clevertap.event.push(event.EventName)
         } else {

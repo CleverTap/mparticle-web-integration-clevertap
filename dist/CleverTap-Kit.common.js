@@ -15,34 +15,38 @@ function CommerceHandler(common) {
 }
 
 CommerceHandler.prototype.logCommerceEvent = function (event) {
-    if (event.EventCategory == 16 && event.ProductAction) {
-        var itemsArray = [];
-        for (var i = 0; i < event.ProductAction.ProductList.length; i++) {
-            var productDict = {};
-            for (var key in event.ProductAction.ProductList[i]) {
-                productDict[key] = event.ProductAction.ProductLgitist[i][key];
+    if (!this.common.forwardWebRequestsServerSide) {
+        if (event.EventCategory == 16 && event.ProductAction) {
+            var itemsArray = [];
+            for (var i = 0; i < event.ProductAction.ProductList.length; i++) {
+                var productDict = {};
+                for (var key in event.ProductAction.ProductList[i]) {
+                    productDict[key] = event.ProductAction.ProductList[i][key];
+                }
+                itemsArray.push(productDict);
             }
-            itemsArray.push(productDict);
-        }
-        var chargedDict = {};
-        chargedDict['Amount'] = event.ProductAction.TotalAmount;
-        chargedDict['Charged ID'] = event.ProductAction.TransactionId;
-        chargedDict['Items'] = itemsArray;
-        clevertap.event.push("Charged", chargedDict);
-    } else {
-        var listOfPageEvents = mParticle.eCommerce.expandCommerceEvent(
-            event
-        );
-        if (listOfPageEvents != null) {
-            for (var i = 0; i < listOfPageEvents.length; i++) {
-                if (listOfPageEvents[i].EventAttributes == null) {
-                    clevertap.event.push(listOfPageEvents[i].EventName);
-                } else {
-                    clevertap.event.push(listOfPageEvents[i].EventName, listOfPageEvents[i].EventAttributes);
+            var chargedDict = {};
+            chargedDict['Amount'] = event.ProductAction.TotalAmount;
+            chargedDict['Charged ID'] = event.ProductAction.TransactionId;
+            chargedDict['Items'] = itemsArray;
+            clevertap.event.push("Charged", chargedDict);
+        } else {
+            var listOfPageEvents = mParticle.eCommerce.expandCommerceEvent(
+                event
+            );
+            if (listOfPageEvents != null) {
+                for (var i = 0; i < listOfPageEvents.length; i++) {
+                    if (listOfPageEvents[i].EventAttributes == null) {
+                        clevertap.event.push(listOfPageEvents[i].EventName);
+                    } else {
+                        clevertap.event.push(listOfPageEvents[i].EventName, listOfPageEvents[i].EventAttributes);
+                    }
                 }
             }
         }
+        return true;
     }
+    return false;
 };
 
 var commerceHandler = CommerceHandler;
@@ -66,18 +70,27 @@ function EventHandler(common) {
     this.common = common || {};
 }
 EventHandler.prototype.logEvent = function(event) {
-    if (event.EventAttributes == null) {
-        clevertap.event.push(event.EventName);
-    } else {
-        clevertap.event.push(event.EventName, event.EventAttributes);
+    if (!this.common.forwardWebRequestsServerSide) {
+        if (event.EventAttributes == null) {
+            clevertap.event.push(event.EventName);
+        } else {
+            clevertap.event.push(event.EventName, event.EventAttributes);
+        }
+        return true;
     }
+    return false;
 };
 EventHandler.prototype.logPageView = function(event) {
-    if (event.EventAttributes == null) {
-        clevertap.event.push(event.EventName);
-    } else {
-        clevertap.event.push(event.EventName, event.EventAttributes);
+    if (!this.common.forwardWebRequestsServerSide) {
+        if (event.EventAttributes == null) {
+            clevertap.event.push(event.EventName);
+        } else {
+            clevertap.event.push(event.EventName, event.EventAttributes);
+        }
+        return true;
     }
+    return false;
+
 };
 
 var eventHandler = EventHandler;
@@ -134,20 +147,22 @@ IdentityHandler.prototype.onModifyComplete = function (
 };
 
 function forwardUserIdentities(mParticleUser) {
-    var userIdentities = mParticleUser.getUserIdentities().userIdentities;
-    var identitiesDict = {};
-    if (userIdentities.customerid !== null) {
-        identitiesDict["Identity"] = userIdentities.customerid;
+    if (!this.common.forwardWebRequestsServerSide) {
+        var userIdentities = mParticleUser.getUserIdentities().userIdentities;
+        var identitiesDict = {};
+        if (userIdentities.customerid !== null) {
+            identitiesDict["Identity"] = userIdentities.customerid;
+        }
+        if (userIdentities.email !== null) {
+            identitiesDict["Email"] = userIdentities.email;
+        }
+        if (userIdentities.mobile_number !== null) {
+            identitiesDict["Phone"] = userIdentities.mobile_number;
+        }
+        var clevertapIDs = {};
+        clevertapIDs["Site"] = identitiesDict;
+        window.clevertap.onUserLogin.push(clevertapIDs);
     }
-    if (userIdentities.email !== null) {
-        identitiesDict["Email"] = userIdentities.email;
-    }
-    if (userIdentities.mobile_number !== null) {
-        identitiesDict["Phone"] = userIdentities.mobile_number;
-    }
-    var clevertapIDs = {};
-    clevertapIDs["Site"] = identitiesDict;
-    window.clevertap.onUserLogin.push(clevertapIDs);
 }
 
 /*  In previous versions of the mParticle web SDK, setting user identities on
@@ -6484,7 +6499,10 @@ var initialization = {
     initForwarder: function(forwarderSettings, testMode, userAttributes, userIdentities, processEvent, eventQueue, isInitialized, common, appVersion, appName, customFlags, clientId) {
         /* `forwarderSettings` contains your SDK specific settings such as apiKey that your customer needs in order to initialize your SDK properly */
         if (!testMode) {
-            window.clevertap.init(forwarderSettings.accountID, forwarderSettings.region);   
+            common.forwardWebRequestsServerSide = forwarderSettings.forwardWebRequestsServerSide === 'True';
+            if (!forwarderSettings.forwardWebRequestsServerSide) {
+                window.clevertap.init(forwarderSettings.accountID, forwarderSettings.region); 
+            }
     }
     }
 };
@@ -6523,22 +6541,23 @@ UserAttributeHandler.prototype.onSetUserAttribute = function(
     value,
     mParticleUser
 ) {
-    var attributesDict = {};
-    key = key.toString().toLowerCase();
-    switch (key) {
-        case '$gender':
-            attributesDict['Gender'] = value;
-            break;
-        case '$firstname':
-            attributesDict['Name'] = value;
-            break;
-        default:
-            attributesDict[key] = value;
-    }
-    var clevertapAttributes = {};
-    clevertapAttributes["Site"] = attributesDict;
-    window.clevertap.profile.push(clevertapAttributes);
-};
+    if (this.common.forwardWebRequestsServerSide) return;
+        var attributesDict = {};
+        key = key.toString().toLowerCase();
+        switch (key) {
+            case '$gender':
+                attributesDict['Gender'] = value;
+                break;
+            case '$firstname':
+                attributesDict['Name'] = value;
+                break;
+            default:
+                attributesDict[key] = value;
+        }
+        var clevertapAttributes = {};
+        clevertapAttributes["Site"] = attributesDict;
+        window.clevertap.profile.push(clevertapAttributes);
+    };
 UserAttributeHandler.prototype.onConsentStateUpdated = function(
     oldState,
     newState,
