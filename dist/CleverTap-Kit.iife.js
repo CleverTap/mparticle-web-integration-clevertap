@@ -26,7 +26,7 @@ var CleverTapKit = (function (exports) {
                 }
                 var chargedDict = {};
                 chargedDict['Amount'] = event.ProductAction.TotalAmount;
-                chargedDict['Charged ID'] = event.ProductAction.TransactionId;
+                chargedDict['ChargedID'] = event.ProductAction.TransactionId;
                 chargedDict['Items'] = itemsArray;
                 clevertap.event.push("Charged", chargedDict);
             } else {
