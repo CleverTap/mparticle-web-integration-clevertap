@@ -16,7 +16,7 @@ A kit takes care of initializing and forwarding information depending on what yo
 
 ## 🎉 Installation
 
-CleverTap mParticle web kit is available as an npm package or as a script to manually add to your website.
+CleverTap mParticle web kit is available as an npm package.
 
 ### Use a package manager
 
