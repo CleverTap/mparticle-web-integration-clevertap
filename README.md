@@ -1,6 +1,6 @@
 # 👋 Introduction
 
-The CleverTap mParticle web kit for Mobile Customer Engagement and Analytics solutions
+The CleverTap mParticle web kit for Customer Engagement and Analytics solutions
 
 CleverTap brings together real-time user insights, an advanced segmentation engine, and easy-to-use marketing tools in one mobile marketing platform — giving your team the power to create amazing experiences that deepen customer relationships. Our intelligent mobile marketing platform provides the insights you need to keep users engaged and drive long-term retention and growth.
 
@@ -16,9 +16,7 @@ A kit takes care of initializing and forwarding information depending on what yo
 
 ## 🎉 Installation
 
-CleverTap mParticle web kit is available as an npm package or as a script to manually add to your website.
-
-### Use a package manager
+CleverTap mParticle web kit is available as an npm package.
 
 ```npm install @clevertap/clevertap-mparticle-web-kit```
 

@@ -1,5 +1,5 @@
 {
-  "name": "clevertap-mparticle-web-kit",
+  "name": "@clevertap/clevertap-mparticle-web-kit",
   "version": "1.0.0",
   "author": "CleverTap SDK Team <sdk@clevertap.com> (https://clevertap.com)",
   "description": "mParticle web kit for CleverTap",
@@ -7,6 +7,9 @@
   "files": [
     "dist/CleverTap-Kit.common.js"
   ],
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "testKarma": "node test/boilerplate/test-karma.js",
     "build": "ENVIRONMENT=production rollup --config rollup.config.js",
