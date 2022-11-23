@@ -18,8 +18,6 @@ A kit takes care of initializing and forwarding information depending on what yo
 
 CleverTap mParticle web kit is available as an npm package.
 
-### Use a package manager
-
 ```npm install @clevertap/clevertap-mparticle-web-kit```
 
 ## 🆕 Change Log
