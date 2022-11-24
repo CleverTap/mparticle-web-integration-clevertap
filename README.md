@@ -10,7 +10,7 @@ To get started, sign up [here](https://clevertap.com/live-product-demo/)
 
 ## mParticle Web Integration
 
-A web integration (or a kit) is an extension to the core [mParticle Web SDK](https://github.com/mParticle/mparticle-javascript-sdk). It works as a bridge between the mParticle SDK and a CleverTap SDK. It abstracts the implementation complexity, simplifying the implementation for developers.
+A web integration (or a kit) is an extension to the core [mParticle Web SDK](https://github.com/mParticle/mparticle-web-sdk). It works as a bridge between the mParticle SDK and a CleverTap SDK. It abstracts the implementation complexity, simplifying the implementation for developers.
 
 A kit takes care of initializing and forwarding information depending on what you've configured in [mParticle's dashboard](https://app.mparticle.com).
 
