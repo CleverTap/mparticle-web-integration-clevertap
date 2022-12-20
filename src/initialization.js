@@ -13,7 +13,8 @@ var initialization = {
         if (!testMode) {
             common.forwardWebRequestsServerSide = forwarderSettings.forwardWebRequestsServerSide === 'True'
             if (!forwarderSettings.forwardWebRequestsServerSide) {
-                var clevertap = require('clevertap-web-sdk')
+                let clevertap = require('clevertap-web-sdk')
+                window.clevertap = clevertap
                 window.clevertap.init(forwarderSettings.accountID, forwarderSettings.region) 
             }
     } else {
