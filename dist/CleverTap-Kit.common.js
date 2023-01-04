@@ -119,20 +119,20 @@ function IdentityHandler(common) {
     this.common = common || {};
 }
 IdentityHandler.prototype.onUserIdentified = function (mParticleUser) {
-    forwardUserIdentities(mParticleUser);
+    forwardUserIdentities.bind(this,mParticleUser)();
 };
 IdentityHandler.prototype.onIdentifyComplete = function (
     mParticleUser,
     identityApiRequest
 ) {
-    forwardUserIdentities(mParticleUser);
+    forwardUserIdentities.bind(this, mParticleUser)();
 
 };
 IdentityHandler.prototype.onLoginComplete = function (
     mParticleUser,
     identityApiRequest
 ) {
-    forwardUserIdentities(mParticleUser);
+    forwardUserIdentities.bind(this, mParticleUser)();
 };
 IdentityHandler.prototype.onLogoutComplete = function (
     mParticleUser,
@@ -142,7 +142,7 @@ IdentityHandler.prototype.onModifyComplete = function (
     mParticleUser,
     identityApiRequest
 ) {
-    forwardUserIdentities(mParticleUser);
+    forwardUserIdentities.bind(this, mParticleUser)();
 
 };
 
@@ -641,7 +641,7 @@ var clevertap$1 = createCommonjsModule(function (module, exports) {
   var EVT_PING = 'ping';
   var COOKIE_EXPIRY = 86400 * 365 * 10; // 10 Years in seconds
 
-  var MAX_TRIES = 50; // API tries
+  var MAX_TRIES = 200; // API tries
 
   var FIRST_PING_FREQ_IN_MILLIS = 2 * 60 * 1000; // 2 mins
 
@@ -1072,7 +1072,9 @@ var clevertap$1 = createCommonjsModule(function (module, exports) {
     },
     // helper variable to handle race condition and check when notifications were called
     unsubGroups: [],
-    updatedCategoryLong: null // domain: window.location.hostname, url -> getHostName()
+    updatedCategoryLong: null,
+    isPrivacyArrPushed: false,
+    privacyArray: [] // domain: window.location.hostname, url -> getHostName()
     // gcookie: -> device
 
   };
@@ -1273,6 +1275,17 @@ var clevertap$1 = createCommonjsModule(function (module, exports) {
       _classPrivateFieldLooseBase(this, _device)[_device] = device;
       _classPrivateFieldLooseBase(this, _session)[_session] = session;
     }
+    /**
+     *
+     * @param {string} global gcookie
+     * @param {string} session
+     * @param {boolean} resume true in case of OUL (on user login), false in all other cases
+     * true signifies that the response in OUL response
+     * @param {number} respNumber the index of the request in backupmanager
+     * @param {boolean} optOutResponse
+     * @returns
+     */
+
 
     _createClass(CleverTapAPI, [{
       key: "s",
@@ -1287,7 +1300,20 @@ var clevertap$1 = createCommonjsModule(function (module, exports) {
         if (respNumber > $ct.globalCache.REQ_N) {
           // request for some other user so ignore
           return;
-        }
+        } // for a condition when a request's response is received
+        // while an OUL request is already in progress
+        // remove the request from backup cache and return
+
+
+        if (window.isOULInProgress && !resume) {
+          return;
+        } // set isOULInProgress to false, if resume is true
+
+
+        if (resume) {
+          window.isOULInProgress = false;
+        } // optout
+
 
         if (!isValueValid(_classPrivateFieldLooseBase(this, _device)[_device].gcookie) || resume || typeof optOutResponse === 'boolean') {
           _classPrivateFieldLooseBase(this, _logger)[_logger].debug("Cookie was ".concat(_classPrivateFieldLooseBase(this, _device)[_device].gcookie, " set to ").concat(global));
@@ -1310,30 +1336,28 @@ var clevertap$1 = createCommonjsModule(function (module, exports) {
               var guidFromLRUCache = $ct.LRU_CACHE.cache[kIdFromLS.id];
 
               if (!guidFromLRUCache) {
-                StorageManager.saveToLSorCookie(FIRE_PUSH_UNREGISTERED, true);
+                StorageManager.saveToLSorCookie(FIRE_PUSH_UNREGISTERED, true); // replace login identity in OUL request
+                // with the gcookie returned in exchange
+
                 $ct.LRU_CACHE.set(kIdFromLS.id, global);
               }
             }
 
-            StorageManager.saveToLSorCookie(GCOOKIE_NAME, global);
+            StorageManager.saveToLSorCookie(GCOOKIE_NAME, global); // lastk provides the guid
+
             var lastK = $ct.LRU_CACHE.getSecondLastKey();
 
             if (StorageManager.readFromLSorCookie(FIRE_PUSH_UNREGISTERED) && lastK !== -1) {
-              var lastGUID = $ct.LRU_CACHE.cache[lastK];
+              var lastGUID = $ct.LRU_CACHE.cache[lastK]; // fire the request directly via fireRequest to unregister the token
+              // then other requests with the updated guid should follow
 
               _classPrivateFieldLooseBase(this, _request)[_request].unregisterTokenForGuid(lastGUID);
             }
           }
-
-          StorageManager.createBroadCookie(GCOOKIE_NAME, global, COOKIE_EXPIRY, window.location.hostname);
-          StorageManager.saveToLSorCookie(GCOOKIE_NAME, global);
         }
 
-        if (resume) {
-          $ct.blockRequest = false;
-
-          _classPrivateFieldLooseBase(this, _logger)[_logger].debug('Resumed requests');
-        }
+        StorageManager.createBroadCookie(GCOOKIE_NAME, global, COOKIE_EXPIRY, window.location.hostname);
+        StorageManager.saveToLSorCookie(GCOOKIE_NAME, global);
 
         if (StorageManager._isLocalStorageSupported()) {
           _classPrivateFieldLooseBase(this, _session)[_session].manageSession(session);
@@ -1348,9 +1372,16 @@ var clevertap$1 = createCommonjsModule(function (module, exports) {
           obj.t = getNow(); // time of last response from server
 
           _classPrivateFieldLooseBase(this, _session)[_session].setSessionCookieObject(obj);
-        }
+        } // set blockRequest to false only if the device has a valid gcookie
 
-        if (resume && !_classPrivateFieldLooseBase(this, _request)[_request].processingBackup) {
+
+        if (isValueValid(_classPrivateFieldLooseBase(this, _device)[_device].gcookie)) {
+          $ct.blockRequest = false;
+        } // if request are not blocked and other network request(s) are not being processed
+        // process request(s) from backup from local storage or cookie
+
+
+        if (!$ct.blockRequest && !_classPrivateFieldLooseBase(this, _request)[_request].processingBackup) {
           _classPrivateFieldLooseBase(this, _request)[_request].processBackupEvents();
         }
 
@@ -2081,6 +2112,14 @@ var clevertap$1 = createCommonjsModule(function (module, exports) {
 
     _createClass(RequestDispatcher, null, [{
       key: "fireRequest",
+      // ANCHOR - Requests get fired from here
+
+      /**
+       *
+       * @param {string} url
+       * @param {*} skipARP
+       * @param {boolean} sendOULFlag
+       */
       value: function fireRequest(url, skipARP, sendOULFlag) {
         _classPrivateFieldLooseBase(this, _fireRequest)[_fireRequest](url, 1, skipARP, sendOULFlag);
       }
@@ -2130,25 +2169,45 @@ var clevertap$1 = createCommonjsModule(function (module, exports) {
     if (_classPrivateFieldLooseBase(this, _dropRequestDueToOptOut)[_dropRequestDueToOptOut]()) {
       this.logger.debug('req dropped due to optout cookie: ' + this.device.gcookie);
       return;
+    } // set a request in progress
+    // so that if gcookie is not present, no other request can be made asynchronusly
+
+
+    if (!isValueValid(this.device.gcookie)) {
+      $ct.blockRequest = true;
     }
+    /**
+     * if the gcookie is null
+     * and the request is not the first request
+     * and the tries are less than max tries
+     * keep retrying
+     */
+
 
     if (!isValueValid(this.device.gcookie) && $ct.globalCache.RESP_N < $ct.globalCache.REQ_N - 1 && tries < MAX_TRIES) {
+      // if ongoing First Request is in progress, initiate retry
       setTimeout(function () {
         _this.logger.debug("retrying fire request for url: ".concat(url, ", tries: ").concat(tries));
 
         _classPrivateFieldLooseBase(_this, _fireRequest)[_fireRequest](url, tries + 1, skipARP, sendOULFlag);
       }, 50);
       return;
-    }
+    } // set isOULInProgress to true
+    // when sendOULFlag is set to true
+
 
     if (!sendOULFlag) {
       if (isValueValid(this.device.gcookie)) {
-        // add cookie to url
+        // add gcookie to url
         url = addToURL(url, 'gc', this.device.gcookie);
       }
 
       url = _classPrivateFieldLooseBase(this, _addARPToRequest)[_addARPToRequest](url, skipARP);
+    } else {
+      window.isOULInProgress = true;
     }
+
+    url = addToURL(url, 'tries', tries); // Add tries to URL
 
     url = _classPrivateFieldLooseBase(this, _addUseIPToRequest)[_addUseIPToRequest](url);
     url = addToURL(url, 'r', new Date().getTime()); // add epoch to beat caching of the URL
@@ -3123,7 +3182,8 @@ var clevertap$1 = createCommonjsModule(function (module, exports) {
       _classPrivateFieldLooseBase(_assertThisInitialized(_this), _oldValues$2)[_oldValues$2] = values;
       _classPrivateFieldLooseBase(_assertThisInitialized(_this), _device$1)[_device$1] = device;
       return _this;
-    }
+    } // On User Login
+
 
     _createClass(UserLoginHandler, [{
       key: "clear",
@@ -3190,10 +3250,13 @@ var clevertap$1 = createCommonjsModule(function (module, exports) {
 
         if (anonymousUser) {
           if (g != null) {
+            // if have gcookie
             $ct.LRU_CACHE.set(kId, g);
             $ct.blockRequest = false;
           }
         } else {
+          // check if the id is present in the cache
+          // set foundInCache to true
           for (var idx in ids) {
             if (ids.hasOwnProperty(idx)) {
               var id = ids[idx];
@@ -3210,6 +3273,7 @@ var clevertap$1 = createCommonjsModule(function (module, exports) {
         if (foundInCache) {
           if (kId !== $ct.LRU_CACHE.getLastKey()) {
             // New User found
+            // remove the entire cache
             _classPrivateFieldLooseBase(_this2, _handleCookieFromCache)[_handleCookieFromCache]();
           } else {
             sendOULFlag = false;
@@ -3463,7 +3527,7 @@ var clevertap$1 = createCommonjsModule(function (module, exports) {
     }, {
       key: "getBannerContent",
       value: function getBannerContent() {
-        return "\n      <style type=\"text/css\">\n        .banner {\n          position: relative;\n        }\n        img {\n          height: auto;\n          width: 100%;\n        }\n        .wrapper:is(.left, .right, .center) {\n          display: flex;\n          justify-content: center;\n          flex-direction: column;\n          align-items: center;\n          position: absolute;\n          width: 100%;\n          height: 100%;\n          overflow: auto;\n          top: 0;\n        }\n        ".concat(this.details.css ? this.details.css : '', "\n      </style>\n      <div class=\"banner\">\n        <picture>\n          <source media=\"(min-width:600px)\" srcset=\"").concat(this.details.desktopImageURL, "\">\n          <source srcset=\"").concat(this.details.mobileImageURL, "\">\n          <img src=\"").concat(this.details.desktopImageURL, "\" alt=\"Please upload a picture\" style=\"width:100%;\">\n        </picture>\n        ").concat(this.details.html ? this.details.html : '', "\n      </div>\n    ");
+        return "\n      <style type=\"text/css\">\n        .banner {\n          position: relative;\n          cursor: pointer;\n        }\n        img {\n          height: ".concat(this.divHeight ? this.divHeight : 'auto', ";\n          width: 100%;\n        }\n        .wrapper:is(.left, .right, .center) {\n          display: flex;\n          justify-content: center;\n          flex-direction: column;\n          align-items: center;\n          position: absolute;\n          width: 100%;\n          height: 100%;\n          overflow: auto;\n          top: 0;\n        }\n        ").concat(this.details.css ? this.details.css : '', "\n      </style>\n      <div class=\"banner\">\n        <picture>\n          <source media=\"(min-width:480px)\" srcset=\"").concat(this.details.desktopImageURL, "\">\n          <source srcset=\"").concat(this.details.mobileImageURL, "\">\n          <img src=\"").concat(this.details.desktopImageURL, "\" alt=\"Please upload a picture\" style=\"width:100%;\">\n        </picture>\n        ").concat(this.details.html ? this.details.html : '', "\n      </div>\n    ");
       }
     }, {
       key: "details",
@@ -3955,6 +4019,7 @@ var clevertap$1 = createCommonjsModule(function (module, exports) {
       var bannerEl = document.createElement('ct-web-personalisation-banner');
       bannerEl.msgId = targetingMsgJson.wzrk_id;
       bannerEl.pivotId = targetingMsgJson.wzrk_pivot;
+      bannerEl.divHeight = targetingMsgJson.display.divHeight;
       bannerEl.details = targetingMsgJson.display.details[0];
       var containerEl = document.getElementById(divId);
       containerEl.innerHTML = '';
@@ -4199,7 +4264,7 @@ var clevertap$1 = createCommonjsModule(function (module, exports) {
 
     var appendScriptForCustomEvent = function appendScriptForCustomEvent(targetingMsgJson, doc) {
       var script = doc.createElement('script');
-      script.innerHTML = "\n      const ct__camapignId = '".concat(targetingMsgJson.wzrk_id, "';\n      const ct__formatVal = (v) => {\n          return v && v.trim().substring(0, 20);\n      }\n      const ct__parentOrigin =  window.parent.origin;\n      document.body.addEventListener('click', (event) => {\n        const elem = event.target.closest?.('a[wzrk_c2a], button[wzrk_c2a]');\n        if (elem) {\n            const {innerText, id, name, value, href} = elem;\n            const clickAttr = elem.getAttribute('onclick') || elem.getAttribute('click');\n            const onclickURL = clickAttr?.match(/(window.open)[(](\"|')(.*)(\"|',)/)?.[3] || clickAttr?.match(/(location.href *= *)(\"|')(.*)(\"|')/)?.[3];\n            const props = {innerText, id, name, value};\n            let msgCTkv = Object.keys(props).reduce((acc, c) => {\n                const formattedVal = ct__formatVal(props[c]);\n                formattedVal && (acc['wzrk_click_' + c] = formattedVal);\n                return acc;\n            }, {});\n            if(onclickURL) { msgCTkv['wzrk_click_' + 'url'] = onclickURL; }\n            if(href) { msgCTkv['wzrk_click_' + 'c2a'] = href; }\n            const notifData = { msgId: ct__camapignId, msgCTkv };\n            console.log('Button Clicked Event', notifData);\n            window.parent.clevertap.renderNotificationClicked(notifData);\n        }\n      });\n    ");
+      script.innerHTML = "\n      const ct__camapignId = '".concat(targetingMsgJson.wzrk_id, "';\n      const ct__formatVal = (v) => {\n          return v && v.trim().substring(0, 20);\n      }\n      const ct__parentOrigin =  window.parent.origin;\n      document.body.addEventListener('click', (event) => {\n        const elem = event.target.closest?.('a[wzrk_c2a], button[wzrk_c2a]');\n        if (elem) {\n            const {innerText, id, name, value, href} = elem;\n            const clickAttr = elem.getAttribute('onclick') || elem.getAttribute('click');\n            const onclickURL = clickAttr?.match(/(window.open)[(](\"|')(.*)(\"|',)/)?.[3] || clickAttr?.match(/(location.href *= *)(\"|')(.*)(\"|')/)?.[3];\n            const props = {innerText, id, name, value};\n            let msgCTkv = Object.keys(props).reduce((acc, c) => {\n                const formattedVal = ct__formatVal(props[c]);\n                formattedVal && (acc['wzrk_click_' + c] = formattedVal);\n                return acc;\n            }, {});\n            if(onclickURL) { msgCTkv['wzrk_click_' + 'url'] = onclickURL; }\n            if(href) { msgCTkv['wzrk_click_' + 'c2a'] = href; }\n            const notifData = { msgId: ct__camapignId, msgCTkv, pivotId: '").concat(targetingMsgJson.wzrk_pivot, "' };\n            window.parent.clevertap.renderNotificationClicked(notifData);\n        }\n      });\n    ");
       doc.body.appendChild(script);
     };
 
@@ -4340,6 +4405,12 @@ var clevertap$1 = createCommonjsModule(function (module, exports) {
         targetingMsgJson = exitintentObj;
       } else {
         targetingMsgJson = targetObj;
+      }
+
+      if (isWebPopUpSpamControlDisabled && targetingMsgJson.display.wtarget_type === 0 && document.getElementById('intentPreview') != null && document.getElementById('intentOpacityDiv') != null) {
+        var element = document.getElementById('intentPreview');
+        element.remove();
+        document.getElementById('intentOpacityDiv').remove();
       }
 
       if (document.getElementById('intentPreview') != null) {
@@ -4992,16 +5063,28 @@ var clevertap$1 = createCommonjsModule(function (module, exports) {
             data.dsync = true;
           }
         }
-      }
+      } // saves url to backup cache and fires the request
+
+      /**
+       *
+       * @param {string} url
+       * @param {boolean} override whether the request can go through or not
+       * @param {Boolean} sendOULFlag - true in case of a On User Login request
+       */
+
     }, {
       key: "saveAndFireRequest",
       value: function saveAndFireRequest(url, override, sendOULFlag) {
         var now = getNow();
         url = addToURL(url, 'rn', ++$ct.globalCache.REQ_N);
         var data = url + '&i=' + now + '&sn=' + seqNo;
-        StorageManager.backupEvent(data, $ct.globalCache.REQ_N, _classPrivateFieldLooseBase(this, _logger$6)[_logger$6]);
+        StorageManager.backupEvent(data, $ct.globalCache.REQ_N, _classPrivateFieldLooseBase(this, _logger$6)[_logger$6]); // if there is no override
+        // and an OUL request is not in progress
+        // then process the request as it is
+        // else block the request
+        // note - $ct.blockRequest should ideally be used for override
 
-        if (!$ct.blockRequest || override || _classPrivateFieldLooseBase(this, _clearCookie)[_clearCookie] !== undefined && _classPrivateFieldLooseBase(this, _clearCookie)[_clearCookie]) {
+        if ((!override || _classPrivateFieldLooseBase(this, _clearCookie)[_clearCookie] !== undefined && _classPrivateFieldLooseBase(this, _clearCookie)[_clearCookie]) && !window.isOULInProgress) {
           if (now === requestTime) {
             seqNo++;
           } else {
@@ -5011,7 +5094,7 @@ var clevertap$1 = createCommonjsModule(function (module, exports) {
 
           RequestDispatcher.fireRequest(data, false, sendOULFlag);
         } else {
-          _classPrivateFieldLooseBase(this, _logger$6)[_logger$6].debug("Not fired due to block request - ".concat($ct.blockRequest, " or clearCookie - ").concat(_classPrivateFieldLooseBase(this, _clearCookie)[_clearCookie]));
+          _classPrivateFieldLooseBase(this, _logger$6)[_logger$6].debug("Not fired due to override - ".concat($ct.blockRequest, " or clearCookie - ").concat(_classPrivateFieldLooseBase(this, _clearCookie)[_clearCookie], " or OUL request in progress - ").concat(window.isOULInProgress));
         }
       }
     }, {
@@ -5050,7 +5133,8 @@ var clevertap$1 = createCommonjsModule(function (module, exports) {
     }, {
       key: "registerToken",
       value: function registerToken(payload) {
-        if (!payload) return;
+        if (!payload) return; // add gcookie etc to the payload
+
         payload = this.addSystemDataToObject(payload, true);
         payload = JSON.stringify(payload);
 
@@ -5076,7 +5160,7 @@ var clevertap$1 = createCommonjsModule(function (module, exports) {
 
         pageLoadUrl = addToURL(pageLoadUrl, 'type', EVT_PUSH);
         pageLoadUrl = addToURL(pageLoadUrl, 'd', compressedData);
-        this.saveAndFireRequest(pageLoadUrl, false);
+        this.saveAndFireRequest(pageLoadUrl, $ct.blockRequest);
       }
     }]);
 
@@ -5169,7 +5253,13 @@ var clevertap$1 = createCommonjsModule(function (module, exports) {
           privacyArr[_key] = arguments[_key];
         }
 
-        _classPrivateFieldLooseBase(this, _processPrivacyArray)[_processPrivacyArray](privacyArr);
+        if ($ct.isPrivacyArrPushed) {
+          _classPrivateFieldLooseBase(this, _processPrivacyArray)[_processPrivacyArray]($ct.privacyArray.length > 0 ? $ct.privacyArray : privacyArr);
+        } else {
+          var _$ct$privacyArray;
+
+          (_$ct$privacyArray = $ct.privacyArray).push.apply(_$ct$privacyArray, privacyArr);
+        }
 
         return 0;
       }
@@ -5225,6 +5315,8 @@ var clevertap$1 = createCommonjsModule(function (module, exports) {
         pageLoadUrl = addToURL(pageLoadUrl, OPTOUT_KEY, optOut ? 'true' : 'false');
 
         _classPrivateFieldLooseBase(this, _request$4)[_request$4].saveAndFireRequest(pageLoadUrl, $ct.blockRequest);
+
+        privacyArr.splice(0, privacyArr.length);
       }
     }
   };
@@ -5491,11 +5583,9 @@ var clevertap$1 = createCommonjsModule(function (module, exports) {
             subscriptionData.browser = 'Firefox';
           }
 
-          StorageManager.saveToLSorCookie(PUSH_SUBSCRIPTION_DATA, subscriptionData); // var shouldSendToken = typeof sessionObj['p'] === STRING_CONSTANTS.UNDEFINED || sessionObj['p'] === 1
+          StorageManager.saveToLSorCookie(PUSH_SUBSCRIPTION_DATA, subscriptionData);
 
-          {
-            _classPrivateFieldLooseBase(_this3, _request$5)[_request$5].registerToken(subscriptionData);
-          }
+          _classPrivateFieldLooseBase(_this3, _request$5)[_request$5].registerToken(subscriptionData);
 
           if (typeof subscriptionCallback !== 'undefined' && typeof subscriptionCallback === 'function') {
             subscriptionCallback();
@@ -5997,16 +6087,16 @@ var clevertap$1 = createCommonjsModule(function (module, exports) {
         return _classPrivateFieldLooseBase(_this, _account$5)[_account$5].id;
       };
 
-      this.getDCDomain = function () {
+      this.getSCDomain = function () {
         return _classPrivateFieldLooseBase(_this, _account$5)[_account$5].finalTargetDomain;
-      }; // Set the Direct Call sdk version and fire request
+      }; // Set the Signed Call sdk version and fire request
 
 
-      this.setDCSDKVersion = function (ver) {
-        _classPrivateFieldLooseBase(_this, _account$5)[_account$5].dcSDKVersion = ver;
+      this.setSCSDKVersion = function (ver) {
+        _classPrivateFieldLooseBase(_this, _account$5)[_account$5].scSDKVersion = ver;
         var data = {};
         data.af = {
-          dcv: 'dc-sdk-v' + _classPrivateFieldLooseBase(_this, _account$5)[_account$5].dcSDKVersion
+          scv: 'sc-sdk-v' + _classPrivateFieldLooseBase(_this, _account$5)[_account$5].scSDKVersion
         };
 
         var pageLoadUrl = _classPrivateFieldLooseBase(_this, _account$5)[_account$5].dataPostURL;
@@ -6014,7 +6104,7 @@ var clevertap$1 = createCommonjsModule(function (module, exports) {
         pageLoadUrl = addToURL(pageLoadUrl, 'type', 'page');
         pageLoadUrl = addToURL(pageLoadUrl, 'd', compressData(JSON.stringify(data), _classPrivateFieldLooseBase(_this, _logger$9)[_logger$9]));
 
-        _classPrivateFieldLooseBase(_this, _request$6)[_request$6].saveAndFireRequest(pageLoadUrl, false);
+        _classPrivateFieldLooseBase(_this, _request$6)[_request$6].saveAndFireRequest(pageLoadUrl, $ct.blockRequest);
       }; // method for notification viewed
 
 
@@ -6231,7 +6321,8 @@ var clevertap$1 = createCommonjsModule(function (module, exports) {
         // Npm imports/require will need to call init explictly with accountId
         this.init();
       }
-    }
+    } // starts here
+
 
     _createClass(CleverTap, [{
       key: "init",
@@ -6272,6 +6363,12 @@ var clevertap$1 = createCommonjsModule(function (module, exports) {
 
         _classPrivateFieldLooseBase(this, _request$6)[_request$6].processBackupEvents();
 
+        $ct.isPrivacyArrPushed = true;
+
+        if ($ct.privacyArray.length > 0) {
+          this.privacy.push($ct.privacyArray);
+        }
+
         _classPrivateFieldLooseBase(this, _processOldValues)[_processOldValues]();
 
         this.pageChanged();
@@ -6285,7 +6382,9 @@ var clevertap$1 = createCommonjsModule(function (module, exports) {
         }
 
         _classPrivateFieldLooseBase(this, _onloadcalled)[_onloadcalled] = 1;
-      }
+      } // process the option array provided to the clevertap object
+      // after its been initialized
+
     }, {
       key: "pageChanged",
       value: function pageChanged() {
@@ -6358,12 +6457,12 @@ var clevertap$1 = createCommonjsModule(function (module, exports) {
         }
 
         data.af = {
-          lib: 'web-sdk-v1.3.0'
+          lib: 'web-sdk-v1.3.4'
         };
         pageLoadUrl = addToURL(pageLoadUrl, 'type', 'page');
         pageLoadUrl = addToURL(pageLoadUrl, 'd', compressData(JSON.stringify(data), _classPrivateFieldLooseBase(this, _logger$9)[_logger$9]));
 
-        _classPrivateFieldLooseBase(this, _request$6)[_request$6].saveAndFireRequest(pageLoadUrl, false);
+        _classPrivateFieldLooseBase(this, _request$6)[_request$6].saveAndFireRequest(pageLoadUrl, $ct.blockRequest);
 
         _classPrivateFieldLooseBase(this, _previousUrl)[_previousUrl] = currLocation;
         setTimeout(function () {
@@ -6411,9 +6510,6 @@ var clevertap$1 = createCommonjsModule(function (module, exports) {
           });
         }
 
-        console.log({
-          data: data
-        });
         data = _classPrivateFieldLooseBase(this, _request$6)[_request$6].addSystemDataToProfileObject(data, undefined);
 
         _classPrivateFieldLooseBase(this, _request$6)[_request$6].addFlags(data);
@@ -6464,7 +6560,7 @@ var clevertap$1 = createCommonjsModule(function (module, exports) {
     pageLoadUrl = addToURL(pageLoadUrl, 'type', EVT_PING);
     pageLoadUrl = addToURL(pageLoadUrl, 'd', compressData(JSON.stringify(data), _classPrivateFieldLooseBase(this, _logger$9)[_logger$9]));
 
-    _classPrivateFieldLooseBase(this, _request$6)[_request$6].saveAndFireRequest(pageLoadUrl, false);
+    _classPrivateFieldLooseBase(this, _request$6)[_request$6].saveAndFireRequest(pageLoadUrl, $ct.blockRequest);
   };
 
   var _isPingContinuous2 = function _isPingContinuous2() {
@@ -6501,6 +6597,8 @@ var initialization = {
         if (!testMode) {
             common.forwardWebRequestsServerSide = forwarderSettings.forwardWebRequestsServerSide === 'True';
             if (!forwarderSettings.forwardWebRequestsServerSide) {
+                let clevertap = clevertap$1;
+                window.clevertap = clevertap;
                 window.clevertap.init(forwarderSettings.accountID, forwarderSettings.region); 
             }
     }

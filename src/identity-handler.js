@@ -22,20 +22,20 @@ function IdentityHandler(common) {
     this.common = common || {};
 }
 IdentityHandler.prototype.onUserIdentified = function (mParticleUser) {
-    forwardUserIdentities(mParticleUser);
+    forwardUserIdentities.bind(this,mParticleUser)();
 };
 IdentityHandler.prototype.onIdentifyComplete = function (
     mParticleUser,
     identityApiRequest
 ) {
-    forwardUserIdentities(mParticleUser);
+    forwardUserIdentities.bind(this, mParticleUser)();
 
 };
 IdentityHandler.prototype.onLoginComplete = function (
     mParticleUser,
     identityApiRequest
 ) {
-    forwardUserIdentities(mParticleUser);
+    forwardUserIdentities.bind(this, mParticleUser)();
 };
 IdentityHandler.prototype.onLogoutComplete = function (
     mParticleUser,
@@ -45,7 +45,7 @@ IdentityHandler.prototype.onModifyComplete = function (
     mParticleUser,
     identityApiRequest
 ) {
-    forwardUserIdentities(mParticleUser);
+    forwardUserIdentities.bind(this, mParticleUser)();
 
 };
 
