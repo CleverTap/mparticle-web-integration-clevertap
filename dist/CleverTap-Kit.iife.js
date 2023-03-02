@@ -1,3 +1,4 @@
+/* eslint-disable */
 var CleverTapKit = (function (exports) {
     'use strict';
 
