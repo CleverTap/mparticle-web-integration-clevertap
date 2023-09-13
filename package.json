@@ -1,6 +1,6 @@
 {
   "name": "@clevertap/clevertap-mparticle-web-kit",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "author": "CleverTap SDK Team <sdk@clevertap.com> (https://clevertap.com)",
   "description": "mParticle web kit for CleverTap",
   "main": "dist/CleverTap-Kit.common.js",
@@ -38,6 +38,6 @@
   },
   "dependencies": {
     "@mparticle/web-sdk": "^2.18.0",
-    "clevertap-web-sdk": "^1.3.3"
+    "clevertap-web-sdk": "^1.6.6"
   }
 }

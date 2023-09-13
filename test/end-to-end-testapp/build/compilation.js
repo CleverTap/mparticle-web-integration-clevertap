@@ -118,8 +118,6 @@ var CleverTapKit = (function (exports) {
         this.common = common || {};
     }
     IdentityHandler.prototype.onUserIdentified = function (mParticleUser) {
-        console.log("hit on onUserIdentified", this);
-        console.trace();
         forwardUserIdentities.bind(this,mParticleUser)();
     };
     IdentityHandler.prototype.onIdentifyComplete = function (
@@ -148,11 +146,8 @@ var CleverTapKit = (function (exports) {
     };
 
     function forwardUserIdentities(mParticleUser) {
-        console.log("this is mParticleUser and this", mParticleUser, this);
-        console.trace("called forwardUserIdentities");
         if (!this.common.forwardWebRequestsServerSide) {
             var userIdentities = mParticleUser.getUserIdentities().userIdentities;
-            console.log("this is userIdentities in if block", userIdentities);
             var identitiesDict = {};
             if (userIdentities.customerid !== null) {
                 identitiesDict["Identity"] = userIdentities.customerid;
@@ -165,7 +160,6 @@ var CleverTapKit = (function (exports) {
             }
             var clevertapIDs = {};
             clevertapIDs["Site"] = identitiesDict;
-            console.log("this is clevertapIDs", clevertapIDs);
             window.clevertap.onUserLogin.push(clevertapIDs);
         }
     }
@@ -413,6 +407,18 @@ var CleverTapKit = (function (exports) {
         };
       }
 
+      function _toConsumableArray(arr) {
+        return _arrayWithoutHoles(arr) || _iterableToArray(arr) || _unsupportedIterableToArray(arr) || _nonIterableSpread();
+      }
+
+      function _arrayWithoutHoles(arr) {
+        if (Array.isArray(arr)) return _arrayLikeToArray(arr);
+      }
+
+      function _iterableToArray(iter) {
+        if (typeof Symbol !== "undefined" && Symbol.iterator in Object(iter)) return Array.from(iter);
+      }
+
       function _unsupportedIterableToArray(o, minLen) {
         if (!o) return;
         if (typeof o === "string") return _arrayLikeToArray(o, minLen);
@@ -428,6 +434,10 @@ var CleverTapKit = (function (exports) {
         for (var i = 0, arr2 = new Array(len); i < len; i++) arr2[i] = arr[i];
 
         return arr2;
+      }
+
+      function _nonIterableSpread() {
+        throw new TypeError("Invalid attempt to spread non-iterable instance.\nIn order to be iterable, non-array objects must have a [Symbol.iterator]() method.");
       }
 
       function _createForOfIteratorHelper(o, allowArrayLike) {
@@ -624,6 +634,8 @@ var CleverTapKit = (function (exports) {
       var GCOOKIE_NAME = 'WZRK_G';
       var KCOOKIE_NAME = 'WZRK_K';
       var CAMP_COOKIE_NAME = 'WZRK_CAMP';
+      var CAMP_COOKIE_G = 'WZRK_CAMP_G'; // cookie for storing campaign details against guid
+
       var SCOOKIE_PREFIX = 'WZRK_S';
       var SCOOKIE_EXP_TIME_IN_SECS = 60 * 20; // 20 mins
 
@@ -644,7 +656,7 @@ var CleverTapKit = (function (exports) {
       var IS_OUL = 'isOUL';
       var EVT_PUSH = 'push';
       var EVT_PING = 'ping';
-      var COOKIE_EXPIRY = 86400 * 365 * 10; // 10 Years in seconds
+      var COOKIE_EXPIRY = 86400 * 365; // 1 Year in seconds
 
       var MAX_TRIES = 200; // API tries
 
@@ -667,6 +679,9 @@ var CleverTapKit = (function (exports) {
       var COMMAND_ADD = '$add';
       var COMMAND_REMOVE = '$remove';
       var COMMAND_DELETE = '$delete';
+      var WEBINBOX_CONFIG = 'WZRK_INBOX_CONFIG';
+      var WEBINBOX = 'WZRK_INBOX';
+      var MAX_INBOX_MSG = 15;
       var SYSTEM_EVENTS = ['Stayed', 'UTM Visited', 'App Launched', 'Notification Sent', NOTIFICATION_VIEWED, NOTIFICATION_CLICKED];
 
       var isString = function isString(input) {
@@ -1078,8 +1093,12 @@ var CleverTapKit = (function (exports) {
         // helper variable to handle race condition and check when notifications were called
         unsubGroups: [],
         updatedCategoryLong: null,
+        inbox: null,
         isPrivacyArrPushed: false,
-        privacyArray: [] // domain: window.location.hostname, url -> getHostName()
+        privacyArray: [],
+        offline: false,
+        location: null,
+        dismissSpamControl: false // domain: window.location.hostname, url -> getHostName()
         // gcookie: -> device
 
       };
@@ -1284,8 +1303,7 @@ var CleverTapKit = (function (exports) {
          *
          * @param {string} global gcookie
          * @param {string} session
-         * @param {boolean} resume true in case of OUL (on user login), false in all other cases
-         * true signifies that the response in OUL response
+         * @param {boolean} resume sent true in case of an OUL request from client side, which is returned as it is by server
          * @param {number} respNumber the index of the request in backupmanager
          * @param {boolean} optOutResponse
          * @returns
@@ -1295,7 +1313,20 @@ var CleverTapKit = (function (exports) {
         _createClass(CleverTapAPI, [{
           key: "s",
           value: function s(global, session, resume, respNumber, optOutResponse) {
-            // call back function used to store global and session ids for the user
+            var oulReq = false;
+            var newGuid = false; // for a scenario when OUL request is true from client side
+            // but resume is returned as false from server end
+            // we maintan a OulReqN var in the window object
+            // and compare with respNumber to determine the response of an OUL request
+
+            if (window.isOULInProgress) {
+              if (resume || respNumber !== 'undefined' && respNumber === window.oulReqN) {
+                window.isOULInProgress = false;
+                oulReq = true;
+              }
+            } // call back function used to store global and session ids for the user
+
+
             if (typeof respNumber === 'undefined') {
               respNumber = 0;
             }
@@ -1305,22 +1336,25 @@ var CleverTapKit = (function (exports) {
             if (respNumber > $ct.globalCache.REQ_N) {
               // request for some other user so ignore
               return;
-            } // for a condition when a request's response is received
-            // while an OUL request is already in progress
-            // remove the request from backup cache and return
+            }
 
-
-            if (window.isOULInProgress && !resume) {
-              return;
-            } // set isOULInProgress to false, if resume is true
-
-
-            if (resume) {
-              window.isOULInProgress = false;
-            } // optout
-
+            if (!isValueValid(_classPrivateFieldLooseBase(this, _device)[_device].gcookie)) {
+              if (global) {
+                newGuid = true;
+              }
+            }
 
             if (!isValueValid(_classPrivateFieldLooseBase(this, _device)[_device].gcookie) || resume || typeof optOutResponse === 'boolean') {
+              var sessionObj = _classPrivateFieldLooseBase(this, _session)[_session].getSessionCookieObject();
+              /*  If the received session is less than the session in the cookie,
+                  then don't update guid as it will be response for old request
+              */
+
+
+              if (window.isOULInProgress || sessionObj.s && session < sessionObj.s) {
+                return;
+              }
+
               _classPrivateFieldLooseBase(this, _logger)[_logger].debug("Cookie was ".concat(_classPrivateFieldLooseBase(this, _device)[_device].gcookie, " set to ").concat(global));
 
               _classPrivateFieldLooseBase(this, _device)[_device].gcookie = global;
@@ -1336,15 +1370,18 @@ var CleverTapKit = (function (exports) {
                 }
 
                 var kIdFromLS = StorageManager.readFromLSorCookie(KCOOKIE_NAME);
+                var guidFromLRUCache;
 
-                if (kIdFromLS != null && kIdFromLS.id && resume) {
-                  var guidFromLRUCache = $ct.LRU_CACHE.cache[kIdFromLS.id];
+                if (kIdFromLS != null && kIdFromLS.id) {
+                  guidFromLRUCache = $ct.LRU_CACHE.cache[kIdFromLS.id];
 
-                  if (!guidFromLRUCache) {
-                    StorageManager.saveToLSorCookie(FIRE_PUSH_UNREGISTERED, true); // replace login identity in OUL request
-                    // with the gcookie returned in exchange
+                  if (resume) {
+                    if (!guidFromLRUCache) {
+                      StorageManager.saveToLSorCookie(FIRE_PUSH_UNREGISTERED, true); // replace login identity in OUL request
+                      // with the gcookie returned in exchange
 
-                    $ct.LRU_CACHE.set(kIdFromLS.id, global);
+                      $ct.LRU_CACHE.set(kIdFromLS.id, global);
+                    }
                   }
                 }
 
@@ -1359,10 +1396,10 @@ var CleverTapKit = (function (exports) {
                   _classPrivateFieldLooseBase(this, _request)[_request].unregisterTokenForGuid(lastGUID);
                 }
               }
-            }
 
-            StorageManager.createBroadCookie(GCOOKIE_NAME, global, COOKIE_EXPIRY, window.location.hostname);
-            StorageManager.saveToLSorCookie(GCOOKIE_NAME, global);
+              StorageManager.createBroadCookie(GCOOKIE_NAME, global, COOKIE_EXPIRY, window.location.hostname);
+              StorageManager.saveToLSorCookie(GCOOKIE_NAME, global);
+            }
 
             if (StorageManager._isLocalStorageSupported()) {
               _classPrivateFieldLooseBase(this, _session)[_session].manageSession(session);
@@ -1382,11 +1419,10 @@ var CleverTapKit = (function (exports) {
 
             if (isValueValid(_classPrivateFieldLooseBase(this, _device)[_device].gcookie)) {
               $ct.blockRequest = false;
-            } // if request are not blocked and other network request(s) are not being processed
-            // process request(s) from backup from local storage or cookie
+            } // only process the backup events after an OUL request or a new guid is recieved
 
 
-            if (!$ct.blockRequest && !_classPrivateFieldLooseBase(this, _request)[_request].processingBackup) {
+            if ((oulReq || newGuid) && !_classPrivateFieldLooseBase(this, _request)[_request].processingBackup) {
               _classPrivateFieldLooseBase(this, _request)[_request].processBackupEvents();
             }
 
@@ -1513,8 +1549,8 @@ var CleverTapKit = (function (exports) {
                   return false;
                 }
 
-                if (chargedObj[key].length > 16) {
-                  logger.reportError(522, 'Charged Items exceed 16 limit. Actual count: ' + chargedObj[key].length + '. Additional items will be dropped.');
+                if (chargedObj[key].length > 50) {
+                  logger.reportError(522, 'Charged Items exceed 50 limit. Actual count: ' + chargedObj[key].length);
                 }
 
                 for (var itemKey in chargedObj[key]) {
@@ -2231,7 +2267,7 @@ var CleverTapKit = (function (exports) {
 
         var ctCbScripts = document.getElementsByClassName('ct-jp-cb');
 
-        while (ctCbScripts[0]) {
+        while (ctCbScripts[0] && ctCbScripts[0].parentNode) {
           ctCbScripts[0].parentNode.removeChild(ctCbScripts[0]);
         }
 
@@ -2260,74 +2296,126 @@ var CleverTapKit = (function (exports) {
         value: _addARPToRequest2
       });
 
-      // CleverTap specific utilities
       var getCampaignObject = function getCampaignObject() {
-        var campObj = {};
+        var finalcampObj = {};
 
         if (StorageManager._isLocalStorageSupported()) {
-          campObj = StorageManager.read(CAMP_COOKIE_NAME);
+          var campObj = StorageManager.read(CAMP_COOKIE_NAME);
 
           if (campObj != null) {
             campObj = JSON.parse(decodeURIComponent(campObj).replace(singleQuoteRegex, '\"'));
+
+            if (campObj.hasOwnProperty('global')) {
+              finalcampObj.wp = campObj;
+            } else {
+              finalcampObj = campObj;
+            }
           } else {
-            campObj = {};
+            finalcampObj = {};
           }
         }
 
-        return campObj;
+        return finalcampObj;
       };
       var saveCampaignObject = function saveCampaignObject(campaignObj) {
         if (StorageManager._isLocalStorageSupported()) {
-          var campObj = JSON.stringify(campaignObj);
-          StorageManager.save(CAMP_COOKIE_NAME, encodeURIComponent(campObj));
+          var newObj = _objectSpread2(_objectSpread2({}, getCampaignObject()), campaignObj);
+
+          var campObj = JSON.stringify(newObj);
+          StorageManager.save(CAMP_COOKIE_NAME, encodeURIComponent(campObj)); // Update the CAMP_COOKIE_G to be in sync with CAMP_COOKIE_NAME
+
+          setCampaignObjectForGuid();
+        }
+      }; // set Campaign Object against the guid, with daily count and total count details
+
+      var setCampaignObjectForGuid = function setCampaignObjectForGuid() {
+        if (StorageManager._isLocalStorageSupported()) {
+          var guid = StorageManager.read(GCOOKIE_NAME);
+
+          if (isValueValid(guid)) {
+            try {
+              guid = JSON.parse(decodeURIComponent(StorageManager.read(GCOOKIE_NAME)));
+              var guidCampObj = StorageManager.read(CAMP_COOKIE_G) ? JSON.parse(decodeURIComponent(StorageManager.read(CAMP_COOKIE_G))) : {};
+
+              if (guid && StorageManager._isLocalStorageSupported()) {
+                var finalCampObj = {};
+                var campObj = getCampaignObject();
+                Object.keys(campObj).forEach(function (key) {
+                  var campKeyObj = guid in guidCampObj && Object.keys(guidCampObj[guid]).length && guidCampObj[guid][key] ? guidCampObj[guid][key] : {};
+                  var globalObj = campObj[key].global;
+                  var today = getToday();
+                  var dailyObj = campObj[key][today];
+
+                  if (typeof globalObj !== 'undefined') {
+                    var campaignIdArray = Object.keys(globalObj);
+
+                    for (var index in campaignIdArray) {
+                      var resultObj = [];
+
+                      if (campaignIdArray.hasOwnProperty(index)) {
+                        var dailyC = 0;
+                        var totalC = 0;
+                        var campaignId = campaignIdArray[index];
+
+                        if (campaignId === 'tc') {
+                          continue;
+                        }
+
+                        if (typeof dailyObj !== 'undefined' && typeof dailyObj[campaignId] !== 'undefined') {
+                          dailyC = dailyObj[campaignId];
+                        }
+
+                        if (typeof globalObj !== 'undefined' && typeof globalObj[campaignId] !== 'undefined') {
+                          totalC = globalObj[campaignId];
+                        }
+
+                        resultObj = [campaignId, dailyC, totalC];
+                        campKeyObj[campaignId] = resultObj;
+                      }
+                    }
+                  }
+
+                  finalCampObj = _objectSpread2(_objectSpread2({}, finalCampObj), {}, _defineProperty({}, key, campKeyObj));
+                });
+                guidCampObj[guid] = finalCampObj;
+                StorageManager.save(CAMP_COOKIE_G, encodeURIComponent(JSON.stringify(guidCampObj)));
+              }
+            } catch (e) {
+              console.error('Invalid clevertap Id ' + e);
+            }
+          }
         }
       };
       var getCampaignObjForLc = function getCampaignObjForLc() {
+        // before preparing data to send to LC , check if the entry for the guid is already there in CAMP_COOKIE_G
+        var guid = JSON.parse(decodeURIComponent(StorageManager.read(GCOOKIE_NAME)));
         var campObj = {};
 
         if (StorageManager._isLocalStorageSupported()) {
+          var resultObj = {};
           campObj = getCampaignObject();
-          var resultObj = [];
-          var globalObj = campObj.global;
+          var storageValue = StorageManager.read(CAMP_COOKIE_G);
+          var decodedValue = storageValue ? decodeURIComponent(storageValue) : null;
+          var parsedValue = decodedValue ? JSON.parse(decodedValue) : null;
+          var resultObjWP = !!guid && storageValue !== undefined && storageValue !== null && parsedValue && parsedValue[guid] && parsedValue[guid].wp ? Object.values(parsedValue[guid].wp) : [];
+          var resultObjWI = !!guid && storageValue !== undefined && storageValue !== null && parsedValue && parsedValue[guid] && parsedValue[guid].wi ? Object.values(parsedValue[guid].wi) : [];
           var today = getToday();
-          var dailyObj = campObj[today];
+          var todayCwp = 0;
+          var todayCwi = 0;
 
-          if (typeof globalObj !== 'undefined') {
-            var campaignIdArray = Object.keys(globalObj);
-
-            for (var index in campaignIdArray) {
-              if (campaignIdArray.hasOwnProperty(index)) {
-                var dailyC = 0;
-                var totalC = 0;
-                var campaignId = campaignIdArray[index];
-
-                if (campaignId === 'tc') {
-                  continue;
-                }
-
-                if (typeof dailyObj !== 'undefined' && typeof dailyObj[campaignId] !== 'undefined') {
-                  dailyC = dailyObj[campaignId];
-                }
-
-                if (typeof globalObj !== 'undefined' && typeof globalObj[campaignId] !== 'undefined') {
-                  totalC = globalObj[campaignId];
-                }
-
-                var element = [campaignId, dailyC, totalC];
-                resultObj.push(element);
-              }
-            }
+          if (campObj.wp && campObj.wp[today] && campObj.wp[today].tc !== 'undefined') {
+            todayCwp = campObj.wp[today].tc;
           }
 
-          var todayC = 0;
-
-          if (typeof dailyObj !== 'undefined' && typeof dailyObj.tc !== 'undefined') {
-            todayC = dailyObj.tc;
+          if (campObj.wi && campObj.wi[today] && campObj.wi[today].tc !== 'undefined') {
+            todayCwi = campObj.wi[today].tc;
           }
 
           resultObj = {
-            wmp: todayC,
-            tlc: resultObj
+            wmp: todayCwp,
+            wimp: todayCwi,
+            tlc: resultObjWP,
+            witlc: resultObjWI
           };
           return resultObj;
         }
@@ -2607,7 +2695,7 @@ var CleverTapKit = (function (exports) {
         if (campaignId != null && campaignId !== '-1') {
           if (StorageManager._isLocalStorageSupported()) {
             var campaignObj = getCampaignObject();
-            var sessionCampaignObj = campaignObj[currentSessionId];
+            var sessionCampaignObj = campaignObj.wp[currentSessionId];
 
             if (sessionCampaignObj == null) {
               sessionCampaignObj = {};
@@ -2640,27 +2728,28 @@ var CleverTapKit = (function (exports) {
           return null;
         }
 
-        var isOULARP = !!(jsonMap[IS_OUL] != null && jsonMap[IS_OUL] === true);
+        var isOULARP = jsonMap[IS_OUL] === true;
 
         if (StorageManager._isLocalStorageSupported()) {
+          // Update arp only if it is null or an oul request
           try {
             var arpFromStorage = StorageManager.readFromLSorCookie(ARP_COOKIE);
 
             if (arpFromStorage == null || isOULARP) {
               arpFromStorage = {};
-            }
 
-            for (var key in jsonMap) {
-              if (jsonMap.hasOwnProperty(key)) {
-                if (jsonMap[key] === -1) {
-                  delete arpFromStorage[key];
-                } else {
-                  arpFromStorage[key] = jsonMap[key];
+              for (var key in jsonMap) {
+                if (jsonMap.hasOwnProperty(key)) {
+                  if (jsonMap[key] === -1) {
+                    delete arpFromStorage[key];
+                  } else {
+                    arpFromStorage[key] = jsonMap[key];
+                  }
                 }
               }
-            }
 
-            StorageManager.saveToLSorCookie(ARP_COOKIE, arpFromStorage);
+              StorageManager.saveToLSorCookie(ARP_COOKIE, arpFromStorage);
+            }
           } catch (e) {
             console.error('Unable to parse ARP JSON: ' + e);
           }
@@ -2890,7 +2979,9 @@ var CleverTapKit = (function (exports) {
             }
 
             if ($ct.globalProfileMap == null) {
-              $ct.globalProfileMap = StorageManager.readFromLSorCookie(PR_COOKIE);
+              var _StorageManager$readF;
+
+              $ct.globalProfileMap = (_StorageManager$readF = StorageManager.readFromLSorCookie(PR_COOKIE)) !== null && _StorageManager$readF !== void 0 ? _StorageManager$readF : {};
             }
 
             $ct.globalProfileMap[key] = array;
@@ -2911,7 +3002,9 @@ var CleverTapKit = (function (exports) {
             var array = [];
 
             if ($ct.globalProfileMap == null) {
-              $ct.globalProfileMap = StorageManager.readFromLSorCookie(PR_COOKIE);
+              var _StorageManager$readF2;
+
+              $ct.globalProfileMap = (_StorageManager$readF2 = StorageManager.readFromLSorCookie(PR_COOKIE)) !== null && _StorageManager$readF2 !== void 0 ? _StorageManager$readF2 : {};
             } // if the value to be set is either string or number
 
 
@@ -2961,11 +3054,13 @@ var CleverTapKit = (function (exports) {
         }, {
           key: "_handleMultiValueRemove",
           value: function _handleMultiValueRemove(propKey, propVal, command) {
+            var _$ct$globalProfileMap2;
+
             if ($ct.globalProfileMap == null) {
               $ct.globalProfileMap = StorageManager.readFromLSorCookie(PR_COOKIE);
             }
 
-            if (!$ct.globalProfileMap.hasOwnProperty(propKey)) {
+            if (!($ct === null || $ct === void 0 ? void 0 : (_$ct$globalProfileMap2 = $ct.globalProfileMap) === null || _$ct$globalProfileMap2 === void 0 ? void 0 : _$ct$globalProfileMap2.hasOwnProperty(propKey))) {
               console.error("The property ".concat(propKey, " does not exist."));
             } else {
               if (typeof propVal === 'string' || typeof propVal === 'number') {
@@ -2998,11 +3093,13 @@ var CleverTapKit = (function (exports) {
         }, {
           key: "_handleMultiValueDelete",
           value: function _handleMultiValueDelete(propKey, command) {
+            var _$ct$globalProfileMap3;
+
             if ($ct.globalProfileMap == null) {
               $ct.globalProfileMap = StorageManager.readFromLSorCookie(PR_COOKIE);
             }
 
-            if (!$ct.globalProfileMap.hasOwnProperty(propKey)) {
+            if (!($ct === null || $ct === void 0 ? void 0 : (_$ct$globalProfileMap3 = $ct.globalProfileMap) === null || _$ct$globalProfileMap3 === void 0 ? void 0 : _$ct$globalProfileMap3.hasOwnProperty(propKey))) {
               console.error("The property ".concat(propKey, " does not exist."));
             } else {
               delete $ct.globalProfileMap[propKey];
@@ -3363,19 +3460,19 @@ var CleverTapKit = (function (exports) {
                 var ids = [];
 
                 if (StorageManager._isLocalStorageSupported()) {
-                  if (profileObj.Identity != null) {
+                  if (profileObj.Identity) {
                     ids.push(profileObj.Identity);
                   }
 
-                  if (profileObj.Email != null) {
+                  if (profileObj.Email) {
                     ids.push(profileObj.Email);
                   }
 
-                  if (profileObj.GPID != null) {
+                  if (profileObj.GPID) {
                     ids.push('GP:' + profileObj.GPID);
                   }
 
-                  if (profileObj.FBID != null) {
+                  if (profileObj.FBID) {
                     ids.push('FB:' + profileObj.FBID);
                   }
 
@@ -3532,7 +3629,7 @@ var CleverTapKit = (function (exports) {
         }, {
           key: "getBannerContent",
           value: function getBannerContent() {
-            return "\n      <style type=\"text/css\">\n        .banner {\n          position: relative;\n          cursor: pointer;\n        }\n        img {\n          height: ".concat(this.divHeight ? this.divHeight : 'auto', ";\n          width: 100%;\n        }\n        .wrapper:is(.left, .right, .center) {\n          display: flex;\n          justify-content: center;\n          flex-direction: column;\n          align-items: center;\n          position: absolute;\n          width: 100%;\n          height: 100%;\n          overflow: auto;\n          top: 0;\n        }\n        ").concat(this.details.css ? this.details.css : '', "\n      </style>\n      <div class=\"banner\">\n        <picture>\n          <source media=\"(min-width:480px)\" srcset=\"").concat(this.details.desktopImageURL, "\">\n          <source srcset=\"").concat(this.details.mobileImageURL, "\">\n          <img src=\"").concat(this.details.desktopImageURL, "\" alt=\"Please upload a picture\" style=\"width:100%;\">\n        </picture>\n        ").concat(this.details.html ? this.details.html : '', "\n      </div>\n    ");
+            return "\n      <style type=\"text/css\">\n        .banner {\n          position: relative;\n          cursor: ".concat(this.details.onClick ? 'pointer' : '', "\n        }\n        img {\n          height: ").concat(this.divHeight ? this.divHeight : 'auto', ";\n          width: 100%;\n        }\n        .wrapper:is(.left, .right, .center) {\n          display: flex;\n          justify-content: center;\n          flex-direction: column;\n          align-items: center;\n          position: absolute;\n          width: 100%;\n          height: 100%;\n          overflow: auto;\n          top: 0;\n        }\n        ").concat(this.details.css ? this.details.css : '', "\n      </style>\n      <div class=\"banner\">\n        <picture>\n          <source media=\"(min-width:480px)\" srcset=\"").concat(this.details.desktopImageURL, "\">\n          <source srcset=\"").concat(this.details.mobileImageURL, "\">\n          <img src=\"").concat(this.details.desktopImageURL, "\" alt=\"Please upload a picture\" style=\"width:100%;\" part=\"banner__img\">\n        </picture>\n        ").concat(this.details.html ? this.details.html : '', "\n      </div>\n    ");
           }
         }, {
           key: "details",
@@ -3689,26 +3786,24 @@ var CleverTapKit = (function (exports) {
         }, {
           key: "getStyles",
           value: function getStyles() {
-            return "\n      <style>\n      .carousel {\n        position: relative;\n      }\n\n      .carousel__item {\n        background-color: grey;\n        display: none;\n        background-repeat: no-repeat;\n        background-size: cover;\n      }\n\n      .carousel__item img {\n        height: auto;\n        width: 100%;\n        transition: 2s;\n      }\n\n      .carousel__item--selected {\n        display: block;\n      }\n      ".concat(this.display.navBtnsCss, "\n      ").concat(this.display.navArrowsCss, "\n      </style>\n  ");
+            var _this$target, _this$target$display;
+
+            return "\n      <style>\n      .carousel {\n        position: relative;\n      }\n\n      .carousel__item {\n        background-color: grey;\n        display: none;\n        background-repeat: no-repeat;\n        background-size: cover;\n      }\n\n      ct-web-personalisation-banner::part(banner__img) {\n        height: ".concat((this === null || this === void 0 ? void 0 : (_this$target = this.target) === null || _this$target === void 0 ? void 0 : (_this$target$display = _this$target.display) === null || _this$target$display === void 0 ? void 0 : _this$target$display.divHeight) ? this.target.display.divHeight : 'auto', ";\n        width: 100%;\n        transition: 2s;\n      }\n\n      .carousel__item--selected {\n        display: block;\n      }\n      ").concat(this.display.navBtnsCss, "\n      ").concat(this.display.navArrowsCss, "\n      </style>\n  ");
           }
         }, {
           key: "updateSelectedItem",
           value: function updateSelectedItem() {
-            var _ref2;
-
             if (this.previouslySelectedItem !== -1) {
-              var _ref;
-
               var prevItem = this.shadow.getElementById("carousel__item-".concat(this.previouslySelectedItem));
               var prevButton = this.shadow.getElementById("carousel__button-".concat(this.previouslySelectedItem));
               prevItem.classList.remove('carousel__item--selected');
-              (_ref = prevButton !== null) !== null && _ref !== void 0 ? _ref : prevButton.classList.remove('carousel__button--selected');
+              prevButton.classList.remove('carousel__button--selected');
             }
 
             var item = this.shadow.getElementById("carousel__item-".concat(this.selectedItem));
             var button = this.shadow.getElementById("carousel__button-".concat(this.selectedItem));
             item.classList.add('carousel__item--selected');
-            (_ref2 = button !== null) !== null && _ref2 !== void 0 ? _ref2 : button.classList.add('carousel__button--selected');
+            button.classList.add('carousel__button--selected');
           }
         }, {
           key: "startAutoSlide",
@@ -3768,12 +3863,1308 @@ var CleverTapKit = (function (exports) {
         return CTWebPersonalisationCarousel;
       }( /*#__PURE__*/_wrapNativeSuper(HTMLElement));
 
+      var CTWebPopupImageOnly = /*#__PURE__*/function (_HTMLElement) {
+        _inherits(CTWebPopupImageOnly, _HTMLElement);
+
+        var _super = _createSuper(CTWebPopupImageOnly);
+
+        function CTWebPopupImageOnly() {
+          var _this;
+
+          _classCallCheck(this, CTWebPopupImageOnly);
+
+          _this = _super.call(this);
+          _this._target = null;
+          _this._session = null;
+          _this.shadow = null;
+          _this.popup = null;
+          _this.container = null;
+          _this.shadow = _this.attachShadow({
+            mode: 'open'
+          });
+          return _this;
+        }
+
+        _createClass(CTWebPopupImageOnly, [{
+          key: "renderImageOnlyPopup",
+          value: function renderImageOnlyPopup() {
+            var _this2 = this;
+
+            var campaignId = this.target.wzrk_id.split('_')[0];
+            var currentSessionId = this.session.sessionId;
+            this.shadow.innerHTML = this.getImageOnlyPopupContent();
+            this.popup = this.shadowRoot.getElementById('imageOnlyPopup');
+            this.container = this.shadowRoot.getElementById('container');
+            this.closeIcon = this.shadowRoot.getElementById('close');
+            this.popup.addEventListener('load', this.updateImageAndContainerWidth());
+            this.closeIcon.addEventListener('click', function () {
+              document.getElementById('wzrkImageOnlyDiv').style.display = 'none';
+
+              _this2.remove();
+
+              if (campaignId != null && campaignId !== '-1') {
+                if (StorageManager._isLocalStorageSupported()) {
+                  var campaignObj = getCampaignObject();
+                  var sessionCampaignObj = campaignObj.wp[currentSessionId];
+
+                  if (sessionCampaignObj == null) {
+                    sessionCampaignObj = {};
+                    campaignObj[currentSessionId] = sessionCampaignObj;
+                  }
+
+                  sessionCampaignObj[campaignId] = 'dnd';
+                  saveCampaignObject(campaignObj);
+                }
+              }
+            });
+            window.clevertap.renderNotificationViewed({
+              msgId: this.msgId,
+              pivotId: this.pivotId
+            });
+
+            if (this.onClickUrl) {
+              this.popup.addEventListener('click', function () {
+                _this2.target.display.window ? window.open(_this2.onClickUrl, '_blank') : window.parent.location.href = _this2.onClickUrl;
+                window.clevertap.renderNotificationClicked({
+                  msgId: _this2.msgId,
+                  pivotId: _this2.pivotId
+                });
+              });
+            }
+          }
+        }, {
+          key: "getImageOnlyPopupContent",
+          value: function getImageOnlyPopupContent() {
+            return "\n        ".concat(this.target.msgContent.css, "\n        ").concat(this.target.msgContent.html, "\n      ");
+          }
+        }, {
+          key: "updateImageAndContainerWidth",
+          value: function updateImageAndContainerWidth() {
+            var _this3 = this;
+
+            return function () {
+              var width = _this3.getRenderedImageWidth(_this3.popup);
+
+              _this3.popup.style.setProperty('width', "".concat(width, "px"));
+
+              _this3.container.style.setProperty('width', "".concat(width, "px"));
+
+              _this3.container.style.setProperty('height', 'auto');
+
+              _this3.container.style.setProperty('position', 'fixed');
+
+              _this3.popup.style.setProperty('visibility', 'visible');
+
+              _this3.closeIcon.style.setProperty('visibility', 'visible');
+
+              document.getElementById('wzrkImageOnlyDiv').style.visibility = 'visible';
+            };
+          }
+        }, {
+          key: "getRenderedImageWidth",
+          value: function getRenderedImageWidth(img) {
+            var ratio = img.naturalWidth / img.naturalHeight;
+            return img.height * ratio;
+          }
+        }, {
+          key: "target",
+          get: function get() {
+            return this._target || '';
+          },
+          set: function set(val) {
+            if (this._target === null) {
+              this._target = val;
+              this.renderImageOnlyPopup();
+            }
+          }
+        }, {
+          key: "session",
+          get: function get() {
+            return this._session || '';
+          },
+          set: function set(val) {
+            this._session = val;
+          }
+        }, {
+          key: "msgId",
+          get: function get() {
+            return this.target.wzrk_id;
+          }
+        }, {
+          key: "pivotId",
+          get: function get() {
+            return this.target.wzrk_pivot;
+          }
+        }, {
+          key: "onClickUrl",
+          get: function get() {
+            return this.target.display.onClickUrl;
+          }
+        }]);
+
+        return CTWebPopupImageOnly;
+      }( /*#__PURE__*/_wrapNativeSuper(HTMLElement));
+
+      var Message = /*#__PURE__*/function (_HTMLElement) {
+        _inherits(Message, _HTMLElement);
+
+        var _super = _createSuper(Message);
+
+        function Message(config, message) {
+          var _this;
+
+          _classCallCheck(this, Message);
+
+          _this = _super.call(this);
+          _this.wrapper = null;
+          _this.snackBar = null;
+          _this.shadow = _this.attachShadow({
+            mode: 'open'
+          });
+          _this.config = config;
+          _this.message = message;
+
+          _this.renderMessage(message);
+
+          return _this;
+        }
+
+        _createClass(Message, [{
+          key: "createEl",
+          value: function createEl(type, id, part) {
+            var _el = document.createElement(type);
+
+            _el.setAttribute('id', id);
+
+            _el.setAttribute('part', part || id);
+
+            return _el;
+          }
+        }, {
+          key: "renderMessage",
+          value: function renderMessage(msg) {
+            this.wrapper = this.createEl('div', 'messageWrapper');
+
+            switch (msg.templateType) {
+              case 'text-only':
+              case 'text-with-icon':
+              case 'text-with-icon-and-image':
+                {
+                  var message = this.prepareBasicMessage(msg.msg[0]);
+                  this.wrapper.appendChild(message);
+                }
+            }
+
+            var timeStamp = this.createEl('div', 'timeStamp');
+            timeStamp.innerHTML = "<span>".concat(determineTimeStampText(msg.id.split('_')[1]), "<span>");
+
+            if (!msg.viewed) {
+              var unreadMarker = this.createEl('span', 'unreadMarker');
+              timeStamp.appendChild(unreadMarker);
+            }
+
+            this.wrapper.appendChild(timeStamp);
+            this.shadow.appendChild(this.wrapper);
+          }
+        }, {
+          key: "prepareBasicMessage",
+          value: function prepareBasicMessage(msg) {
+            var message = this.createEl('div', 'message');
+
+            if (msg.imageUrl) {
+              var imageContainer = this.addImage(msg.imageUrl, 'mainImg');
+              message.appendChild(imageContainer);
+            }
+
+            var iconTitleDescWrapper = this.createEl('div', 'iconTitleDescWrapper');
+
+            if (msg.iconUrl) {
+              var iconContainer = this.addImage(msg.iconUrl, 'iconImg');
+              iconTitleDescWrapper.appendChild(iconContainer);
+            }
+
+            var titleDescWrapper = this.createEl('div', 'titleDescWrapper');
+
+            if (msg.title) {
+              var title = this.createEl('div', 'title');
+              title.innerText = msg.title;
+              titleDescWrapper.appendChild(title);
+            }
+
+            if (msg.description) {
+              var description = this.createEl('div', 'description');
+              description.innerText = msg.description;
+              titleDescWrapper.appendChild(description);
+            }
+
+            if (msg.title || msg.description) {
+              iconTitleDescWrapper.appendChild(titleDescWrapper);
+            }
+
+            if (msg.iconUrl || msg.title || msg.description) {
+              message.appendChild(iconTitleDescWrapper);
+            }
+
+            if (msg.buttons && msg.buttons.length) {
+              var buttonsContainer = this.addButtons(msg.buttons);
+              message.appendChild(buttonsContainer);
+            }
+
+            return message;
+          }
+        }, {
+          key: "addButtons",
+          value: function addButtons() {
+            var _this2 = this;
+
+            var buttons = arguments.length > 0 && arguments[0] !== undefined ? arguments[0] : [];
+            var buttonsContainer = this.createEl('div', 'buttonsContainer');
+            var hasCopyAction = false;
+            buttons.forEach(function (b, i) {
+              var button = _this2.createEl('button', "button-".concat(i), 'button');
+
+              button.innerText = b.text;
+
+              if (i > 0) {
+                button.style.cssText += 'margin-left: 2px;';
+              }
+
+              if (b.action === 'copy') {
+                hasCopyAction = true;
+              }
+
+              buttonsContainer.appendChild(button);
+            });
+
+            if (hasCopyAction) {
+              this.addSnackbar(buttonsContainer);
+            }
+
+            return buttonsContainer;
+          }
+        }, {
+          key: "addSnackbar",
+          value: function addSnackbar(buttonsContainer) {
+            this.snackBar = this.createEl('div', "snackbar-".concat(this.campaignId), 'snackbar');
+            this.snackBar.innerHTML = greenTickSvg;
+            var clipboardMsg = this.createEl('span', "snackbar-msg-".concat(this.campaignId), 'snackbar-msg');
+            clipboardMsg.innerText = 'Copied to clipboard';
+            this.snackBar.appendChild(clipboardMsg);
+            buttonsContainer.appendChild(this.snackBar);
+          }
+        }, {
+          key: "addImage",
+          value: function addImage(url, type) {
+            var imageContainer = this.createEl('div', "".concat(type, "Container"));
+            var image = this.createEl('img', type);
+            image.setAttribute('src', url); // images will be fetched as and when the element comes into the viewport
+
+            image.setAttribute('loading', 'lazy');
+            imageContainer.appendChild(image);
+            return imageContainer;
+          }
+        }, {
+          key: "raiseClickedEvent",
+          value: function raiseClickedEvent(path, isPreview) {
+            switch (this.message.templateType) {
+              case 'text-only':
+              case 'text-with-icon':
+              case 'text-with-icon-and-image':
+                {
+                  this.raiseClickedForBasicTemplates(path, isPreview);
+                }
+            }
+          }
+        }, {
+          key: "raiseClickedForBasicTemplates",
+          value: function raiseClickedForBasicTemplates(path, isPreview) {
+            var _this3 = this;
+
+            var msg = this.message.msg[0];
+            var payload = {
+              msgId: this.campaignId,
+              pivotId: this.pivotId
+            };
+
+            if (path.tagName === 'BUTTON') {
+              var id = path.id.split('-')[1];
+              var button = msg.buttons[id];
+              payload.kv = {
+                wzrk_c2a: button.text
+              };
+
+              if (button.action === 'url') {
+                button.openUrlInNewTab ? window.open(button.url, '_blank') : window.location = button.url;
+              } else if (button.action === 'copy') {
+                window.focus();
+                navigator.clipboard.writeText(button.clipboardText);
+                this.snackBar.style.setProperty('display', 'flex', 'important');
+                setTimeout(function () {
+                  _this3.snackBar.style.setProperty('display', 'none', 'important');
+                }, 2000);
+              }
+            } else if (path.tagName === 'CT-INBOX-MESSAGE' && msg.onClickUrl) {
+              msg.openUrlInNewTab ? window.open(msg.onClickUrl, '_blank') : window.location = msg.onClickUrl;
+            }
+
+            if (isPreview) {
+              console.log('Notifiction clicked event will be raised at run time with payload ::', payload);
+            } else {
+              window.clevertap.renderNotificationClicked(payload);
+            }
+          }
+        }, {
+          key: "pivotId",
+          get: function get() {
+            return this.message.wzrk_pivot;
+          }
+        }, {
+          key: "campaignId",
+          get: function get() {
+            return this.message.wzrk_id;
+          }
+        }]);
+
+        return Message;
+      }( /*#__PURE__*/_wrapNativeSuper(HTMLElement));
+
+      var messageStyles = function messageStyles(_ref) {
+        var backgroundColor = _ref.backgroundColor,
+            borderColor = _ref.borderColor,
+            titleColor = _ref.titleColor,
+            descriptionColor = _ref.descriptionColor,
+            buttonColor = _ref.buttonColor,
+            buttonTextColor = _ref.buttonTextColor,
+            unreadMarkerColor = _ref.unreadMarkerColor;
+        return "\n    <style id=\"messageStyles\">\n      ct-inbox-message::part(messageWrapper) {\n        margin-bottom: 16px; \n      }\n      ct-inbox-message::part(message) {\n        background-color: ".concat(backgroundColor, "; \n        border: 1px solid ").concat(borderColor, ";\n        border-radius: 4px; \n        overflow: hidden;\n        min-height: 40px;\n      }\n      ct-inbox-message::part(message):hover {\n        box-shadow: 0px 4px 8px rgb(0 0 0 / 10%);\n        cursor: pointer;\n      }\n      ct-inbox-message::part(iconTitleDescWrapper) {\n        display: flex; \n        padding: 16px;\n      }\n      ct-inbox-message::part(titleDescWrapper) {\n        display: flex; \n        flex-direction: column;\n      }\n      ct-inbox-message::part(iconImgContainer) {\n        display: flex; \n        margin-right: 16px;\n      }\n      ct-inbox-message::part(mainImgContainer) {\n        line-height: 0;\n      }\n      ct-inbox-message::part(mainImg) {\n        width: 100%; \n        background: #b2b1ae;\n      }\n      ct-inbox-message::part(iconImg) {\n        height: 40px; \n        width: 40px;\n      }\n      ct-inbox-message::part(title) {\n        font-size: 14px !important; \n        line-height: 20px; \n        font-weight: 600; \n        color: ").concat(titleColor, "\n      }\n      ct-inbox-message::part(description) {\n        font-size: 14px !important; \n        line-height: 20px; \n        font-weight: 400; \n        color: ").concat(descriptionColor, "\n      }\n      ct-inbox-message::part(button) {\n        background-color: ").concat(buttonColor, "; \n        color: ").concat(buttonTextColor, "; \n        padding: 8px 16px; \n        font-size: 12px; \n        line-height: 16px; \n        font-weight: 600; \n        flex: 1; \n        border-radius: 0px; \n        text-transform: capitalize; \n        cursor: pointer; \n        border: none;\n      }\n      ct-inbox-message::part(buttonsContainer) {\n        display: flex;\n        position: relative;\n      }\n      ct-inbox-message::part(snackbar) {\n        position: absolute;\n        top: calc(-100% - 12px);\n        left: 50%;\n        transform: translate(-50%, 0px);\n        font-size: 14px;\n        font-weight: 400;\n        background: #FFFFFF;\n        border: 1px solid #ECEDF2;\n        box-shadow: 0px 4px 8px rgb(0 0 0 / 6%), 0px 0px 2px rgb(0 0 0 / 4%);\n        border-radius: 4px;\n        z-index: 2;\n        display: none;\n        width: max-content;\n        align-items: center;\n        padding: 8px 16px;\n        justify-content: center;\n      }\n\n      ct-inbox-message::part(snackbar-msg) {\n        color: black;\n        margin-left: 8px;\n      }\n\n      ct-inbox-message::part(timeStamp) {\n        display: flex; \n        justify-content: end; \n        align-items: center; \n        margin-top: 4px; \n        font-size: 12px !important; \n        line-height: 16px; \n        color: black;\n      }\n      ct-inbox-message::part(unreadMarker) {\n        height: 8px; \n        width: 8px; \n        border-radius: 50%; \n        background-color: ").concat(unreadMarkerColor, "; \n        margin-left: 8px;\n      }\n      @media only screen and (min-width: 420px) {\n        ct-inbox-message::part(mainImg) {\n          height: 180px;\n        }\n      }\n    </style>\n  ");
+      };
+      var inboxContainerStyles = function inboxContainerStyles(_ref2) {
+        var panelBackgroundColor = _ref2.panelBackgroundColor,
+            panelBorderColor = _ref2.panelBorderColor,
+            headerBackgroundColor = _ref2.headerBackgroundColor,
+            headerTitleColor = _ref2.headerTitleColor,
+            closeIconColor = _ref2.closeIconColor,
+            categoriesTabColor = _ref2.categoriesTabColor,
+            categoriesTitleColor = _ref2.categoriesTitleColor,
+            categoriesBorderColor = _ref2.categoriesBorderColor,
+            selectedCategoryTabColor = _ref2.selectedCategoryTabColor,
+            selectedCategoryTitleColor = _ref2.selectedCategoryTitleColor,
+            selectedCategoryBorderColor = _ref2.selectedCategoryBorderColor,
+            headerCategoryAndPoweredByCTHeight = _ref2.headerCategoryAndPoweredByCTHeight;
+        return "\n      <style id=\"webInboxStyles\">\n        #inbox {\n          width: 100%;\n          position: fixed;\n          background-color: #fff; \n          display: none; \n          box-shadow: 0px 2px 10px 0px #d7d7d791;\n          background-color: ".concat(panelBackgroundColor, "; \n          border: 1px solid ").concat(panelBorderColor, ";\n          top: 0;\n          left: 0;\n          height: 100%;\n          overflow: auto;\n          z-index: 1;\n          box-sizing: content-box;\n          border-radius: 4px;\n        }\n  \n        #emptyInboxMsg {\n          display: block;\n          padding: 10px;\n          text-align: center;\n          color: black;\n        }\n  \n        #header {\n          height: 36px; \n          width: 100%; \n          display: flex; \n          justify-content: center; \n          align-items: center; \n          background-color: ").concat(headerBackgroundColor, "; \n          background-color: var(--card-bg, ").concat(headerBackgroundColor, ");\n          color: ").concat(headerTitleColor, "\n        }\n  \n        #closeInbox {\n          font-size: 20px; \n          margin-right: 12px; \n          color: ").concat(closeIconColor, "; \n          cursor: pointer;\n        }\n  \n        #headerTitle {\n          font-size: 14px; \n          line-height: 20px; \n          flex-grow: 1; \n          font-weight: 700; \n          text-align: center;\n          flex-grow: 1;\n          text-align: center;\n        }\n  \n        #categoriesContainer {\n          padding: 16px 16px 0 16px; \n          height: 32px; \n          display: flex;\n          scroll-behavior: smooth;\n          position: relative;\n        }\n\n        #categoriesWrapper {\n          height: 32px; \n          overflow-x: scroll;\n          display: flex;\n          white-space: nowrap;\n          scrollbar-width: none;\n        }\n\n        #categoriesWrapper::-webkit-scrollbar {\n          display: none;\n        }\n  \n        #leftArrow, #rightArrow {\n          height: 32px;\n          align-items: center;\n          font-weight: 700;\n          position: absolute;\n          z-index: 2;\n          pointer-events: auto;\n          cursor: pointer;\n          display: none;\n        }\n\n        #leftArrow {\n          left: 0;\n          padding-left: 4px;\n          padding-right: 16px;\n          background: linear-gradient(90deg, ").concat(panelBackgroundColor, " 0%, ").concat(panelBackgroundColor, "99 80%, ").concat(panelBackgroundColor, "0d 100%);\n        }\n\n        #rightArrow {\n          right: 0;\n          padding-right: 4px;\n          padding-left: 16px;\n          background: linear-gradient(-90deg, ").concat(panelBackgroundColor, " 0%, ").concat(panelBackgroundColor, "99 80%, ").concat(panelBackgroundColor, "0d 100%);\n        }\n\n        [id^=\"category-\"] {\n          display: flex; \n          flex: 1 1 0; \n          justify-content: center; \n          align-items: center; \n          font-size: 14px; \n          line-height: 20px; \n          background-color: ").concat(categoriesTabColor, "; \n          color: ").concat(categoriesTitleColor, "; \n          cursor: pointer;\n          padding: 6px 24px;\n          margin: 0 3px;\n          border-radius: 16px;\n          border: ").concat(categoriesBorderColor ? '1px solid ' + categoriesBorderColor : 'none', ";\n        }\n\n        [id^=\"category-\"][selected=\"true\"] {\n          background-color: ").concat(selectedCategoryTabColor, "; \n          color: ").concat(selectedCategoryTitleColor, "; \n          border: ").concat(selectedCategoryBorderColor ? '1px solid ' + selectedCategoryBorderColor : 'none', "\n        }\n  \n        #inboxCard {\n          padding: 0 16px 0 16px;\n          overflow-y: auto;\n          box-sizing: border-box;\n          margin-top: 16px;\n        }\n\n        #poweredByCT {\n          display: block;\n          height: 16px;\n          padding: 8px 0px;\n          margin: auto;\n        }\n  \n        @media only screen and (min-width: 420px) {\n          #inbox {\n            width: var(--inbox-width, 392px);\n            height: var(--inbox-height, 546px);\n            position: var(--inbox-position, fixed);\n            right: var(--inbox-right, unset);\n            bottom: var(--inbox-bottom, unset);\n            top: var(--inbox-top, unset);\n            left: var(--inbox-left, unset);\n          }\n  \n          #inboxCard {\n            height: calc(var(--inbox-height, 546px) - ").concat(headerCategoryAndPoweredByCTHeight, "px); \n          }\n  \n        }\n      </style>\n      ");
+      };
+
+      var Inbox = /*#__PURE__*/function (_HTMLElement) {
+        _inherits(Inbox, _HTMLElement);
+
+        var _super = _createSuper(Inbox);
+
+        function Inbox(logger) {
+          var _this;
+
+          _classCallCheck(this, Inbox);
+
+          _this = _super.call(this);
+          _this.isInboxOpen = false;
+          _this.selectedCategory = null;
+          _this.unviewedMessages = {};
+          _this.unviewedCounter = 0;
+          _this.isPreview = false;
+          _this.inboxConfigForPreview = {};
+          _this.inboxSelector = null;
+          _this.inbox = null;
+          _this.emptyInboxMsg = null;
+          _this.inboxCard = null;
+          _this.unviewedBadge = null;
+          _this.observer = null;
+          _this.selectedCategoryRef = null;
+
+          _this.addClickListenerOnDocument = function () {
+            return function (e) {
+              if (e.composedPath().includes(_this.inbox)) {
+                // path is not supported on FF. So we fallback to e.composedPath
+                var path = e.path || e.composedPath && e.composedPath();
+
+                if (path.length) {
+                  var id = path[0].id;
+
+                  if (id === 'closeInbox') {
+                    _this.toggleInbox();
+                  } else if (id.startsWith('category-')) {
+                    _this.prevCategoryRef = _this.selectedCategoryRef;
+                    _this.selectedCategoryRef = path[0];
+
+                    _this.updateActiveCategory(path[0].innerText);
+                  } else {
+                    var _path = path.filter(function (p) {
+                      var _p$id;
+
+                      return ((_p$id = p.id) === null || _p$id === void 0 ? void 0 : _p$id.startsWith('button-')) || p.tagName === 'CT-INBOX-MESSAGE';
+                    });
+
+                    if (_path.length) {
+                      var messageEl = _path[_path.length - 1];
+                      messageEl.raiseClickedEvent(_path[0], _this.isPreview);
+                    }
+                  }
+                }
+              } else if (_this.inboxSelector.contains(e.target) || _this.isInboxOpen) {
+                _this.toggleInbox(e);
+              }
+            };
+          }();
+
+          _this.setBadgeStyle = function (msgCount) {
+            if (_this.unviewedBadge !== null) {
+              _this.unviewedBadge.innerText = msgCount > 9 ? '9+' : msgCount;
+              _this.unviewedBadge.style.display = msgCount > 0 ? 'flex' : 'none';
+            }
+          };
+
+          _this.logger = logger;
+          _this.shadow = _this.attachShadow({
+            mode: 'open'
+          });
+          return _this;
+        }
+
+        _createClass(Inbox, [{
+          key: "connectedCallback",
+          value: function connectedCallback() {
+            this.init();
+          }
+        }, {
+          key: "init",
+          value: function init() {
+            this.config = this.isPreview ? this.inboxConfigForPreview : StorageManager.readFromLSorCookie(WEBINBOX_CONFIG) || {};
+
+            if (Object.keys(this.config).length === 0) {
+              return;
+            }
+
+            this.inboxSelector = document.getElementById(this.config.inboxSelector);
+
+            if (this.inboxSelector === null) {
+              return;
+            }
+
+            if (this.config.styles.notificationsBadge) {
+              this.addUnviewedBadge();
+            } else if (this.unviewedBadge) {
+              this.unviewedBadge.remove();
+            }
+
+            this.createinbox();
+            /**
+             * We need to remove the listener as there could be a scenario where init would be called when
+             * we get updated web inbox settings from LC after the inbox has been initialised.
+             * It can so happen that the inbox-selector would have changed.
+             */
+
+            document.removeEventListener('click', this.addClickListenerOnDocument);
+            document.addEventListener('click', this.addClickListenerOnDocument);
+            this.config.categories.length && this.updateActiveCategory(this.selectedCategoryRef.innerText);
+            this.shadow.innerHTML = this.getInboxStyles();
+            this.shadow.appendChild(this.inbox);
+          }
+        }, {
+          key: "addMsgsToInboxFromLS",
+          value: function addMsgsToInboxFromLS() {
+            var _this2 = this;
+
+            var messages = this.deleteExpiredAndGetUnexpiredMsgs(false);
+            var msgIds = messages ? Object.keys(messages) : [];
+
+            if (msgIds.length === 0) {
+              return;
+            }
+
+            msgIds.forEach(function (m) {
+              if (!messages[m].viewed) {
+                _this2.unviewedMessages[m] = messages[m];
+                _this2.unviewedCounter++;
+              }
+            });
+            this.buildUIForMessages(messages);
+            this.updateUnviewedBadgeCounter();
+          }
+          /**
+           * @param {*} deleteMsgsFromUI - If this param is true, then we'll have to check the UI and delete expired messages from the DOM
+           * It'll be false when you are building the inbox layout for the very first time.
+           *
+           * This method reads the inbox messages from LS,
+           * based on the deleteMsgsFromUI flag deletes the expired messages from UI and decrements the unviewed counter if the message was not viewed,
+           * sorts the messages based on the date,
+           * saves the unexpired messages to LS
+           * and returns the sorted unexpired messages
+           *
+           * Scenarios when we encounter expired messages -
+           * 1. building ui for the 1st time, no need to decrement the unviewed counter as the correct count will be set at the time of rendering
+           * 2. UI is already built (deleteMsgsFromUI = true) and you open the inbox
+           *    a. You'll find the expired msg in inbox
+           *    b. You'll not find the expired msg in inbox.
+           *       This happens when we receive new messages from LC, increment unviewed counter, save it in LS. (We build the UI only when the user opens inbox.)
+           *  In both the above scenarios, we'll still have to decrement the unviewed counter if the message was not viewed.
+           */
+
+        }, {
+          key: "deleteExpiredAndGetUnexpiredMsgs",
+          value: function deleteExpiredAndGetUnexpiredMsgs() {
+            var deleteMsgsFromUI = arguments.length > 0 && arguments[0] !== undefined ? arguments[0] : true;
+            var messages = getInboxMessages();
+            var now = Math.floor(Date.now() / 1000);
+
+            for (var msg in messages) {
+              if (messages[msg].wzrk_ttl && messages[msg].wzrk_ttl > 0 && messages[msg].wzrk_ttl < now) {
+                if (deleteMsgsFromUI) {
+                  var el = this.shadowRoot.getElementById(messages[msg].id);
+                  el && el.remove();
+
+                  if (!messages[msg].viewed) {
+                    this.unviewedCounter--;
+                    this.updateUnviewedBadgeCounter();
+                  }
+                }
+
+                delete messages[msg];
+              }
+            }
+
+            if (messages && messages.length > 0) {
+              messages = Object.values(messages).sort(function (a, b) {
+                return b.date - a.date;
+              }).reduce(function (acc, m) {
+                acc[m.id] = m;
+                return acc;
+              }, {});
+            }
+
+            saveInboxMessages(messages);
+            return messages;
+          }
+        }, {
+          key: "updateInboxMessages",
+          value: function updateInboxMessages() {
+            var _this3 = this;
+
+            var msgs = arguments.length > 0 && arguments[0] !== undefined ? arguments[0] : [];
+            var inboxMsgs = this.deleteExpiredAndGetUnexpiredMsgs();
+            var date = Date.now();
+            var incomingMsgs = {};
+            msgs.forEach(function (m, i) {
+              var key = "".concat(m.wzrk_id.split('_')[0], "_").concat(Date.now());
+              m.id = key; // We are doing this to preserve the order of the messages
+
+              m.date = date - i;
+              m.viewed = 0;
+              inboxMsgs[key] = m;
+              incomingMsgs[key] = m;
+              _this3.unviewedMessages[key] = m;
+              _this3.unviewedCounter++;
+            });
+            saveInboxMessages(inboxMsgs);
+            this.buildUIForMessages(incomingMsgs);
+            this.updateUnviewedBadgeCounter();
+          }
+        }, {
+          key: "createEl",
+          value: function createEl(type, id, part) {
+            var _el = document.createElement(type);
+
+            _el.setAttribute('id', id);
+
+            _el.setAttribute('part', part || id);
+
+            return _el;
+          }
+        }, {
+          key: "addUnviewedBadge",
+          value: function addUnviewedBadge() {
+            var _this4 = this;
+
+            if (!this.unviewedBadge) {
+              this.unviewedBadge = this.createEl('div', 'unviewedBadge'); // As this unviewedBadge element will be directly added to the DOM, we are defining inline styles
+
+              this.unviewedBadge.style.cssText = "display: none; position: absolute; height: 16px; width: 26px; border-radius: 8px; background-color: ".concat(this.config.styles.notificationsBadge.backgroundColor, "; font-size: 12px; color: ").concat(this.config.styles.notificationsBadge.textColor, "; font-weight: bold; align-items: center; justify-content: center;");
+              document.body.appendChild(this.unviewedBadge);
+            }
+
+            this.updateUnviewedBadgePosition(); // called when user switches b/w portrait and landscape mode.
+
+            window.addEventListener('resize', function () {
+              _this4.updateUnviewedBadgePosition();
+            });
+          }
+        }, {
+          key: "updateUnviewedBadgePosition",
+          value: function updateUnviewedBadgePosition() {
+            var _this$inboxSelector$g = this.inboxSelector.getBoundingClientRect(),
+                top = _this$inboxSelector$g.top,
+                right = _this$inboxSelector$g.right;
+
+            this.unviewedBadge.style.top = "".concat(top - 8, "px");
+            this.unviewedBadge.style.left = "".concat(right - 8, "px");
+          }
+        }, {
+          key: "createinbox",
+          value: function createinbox() {
+            var _this5 = this;
+
+            this.inbox = this.createEl('div', 'inbox');
+            var header = this.createEl('div', 'header');
+            var headerTitle = this.createEl('div', 'headerTitle');
+            headerTitle.innerText = this.config.title;
+            var closeIcon = this.createEl('div', 'closeInbox');
+            closeIcon.innerHTML = '&times';
+            header.appendChild(headerTitle);
+            header.appendChild(closeIcon);
+            this.inbox.appendChild(header);
+
+            if (this.config.categories.length) {
+              var categories = this.createCategories();
+              this.inbox.appendChild(categories);
+            }
+
+            this.inboxCard = this.createEl('div', 'inboxCard');
+            this.inbox.appendChild(this.inboxCard);
+            this.emptyInboxMsg = this.createEl('div', 'emptyInboxMsg');
+            this.emptyInboxMsg.innerText = 'All messages will be displayed here.';
+            this.inboxCard.appendChild(this.emptyInboxMsg);
+
+            if (this.config.hidePoweredByCT === false) {
+              var poweredByText = this.createEl('img', 'poweredByCT');
+              poweredByText.src = 'https://d2r1yp2w7bby2u.cloudfront.net/js/PB_CT_new.png';
+              this.inbox.appendChild(poweredByText);
+            } // Intersection observer for notification viewed
+
+
+            var options = {
+              root: this.inboxCard,
+              rootMargin: '0px',
+              threshold: 0.5
+            };
+            this.observer = new IntersectionObserver(function (entries, observer) {
+              _this5.handleMessageViewed(entries);
+            }, options);
+            this.addMsgsToInboxFromLS();
+          }
+        }, {
+          key: "createCategories",
+          value: function createCategories() {
+            var _this6 = this;
+
+            var categoriesContainer = this.createEl('div', 'categoriesContainer');
+            var leftArrow = this.createEl('div', 'leftArrow');
+            leftArrow.innerHTML = arrowSvg;
+            leftArrow.children[0].style = 'transform: rotate(180deg)';
+            leftArrow.addEventListener('click', function () {
+              _this6.shadowRoot.getElementById('categoriesWrapper').scrollBy(-70, 0);
+            });
+            categoriesContainer.appendChild(leftArrow);
+            var categoriesWrapper = this.createEl('div', 'categoriesWrapper');
+
+            var _categories = ['All'].concat(_toConsumableArray(this.config.categories));
+
+            _categories.forEach(function (c, i) {
+              var category = _this6.createEl('div', "category-".concat(i), 'category');
+
+              category.innerText = c;
+
+              if (i === 0) {
+                _this6.selectedCategoryRef = category;
+              }
+
+              categoriesWrapper.appendChild(category);
+            });
+
+            categoriesContainer.appendChild(categoriesWrapper);
+            var rightArrow = this.createEl('div', 'rightArrow');
+            rightArrow.innerHTML = arrowSvg;
+            rightArrow.addEventListener('click', function () {
+              _this6.shadowRoot.getElementById('categoriesWrapper').scrollBy(70, 0);
+            });
+            categoriesContainer.appendChild(rightArrow);
+            var options = {
+              root: categoriesContainer,
+              threshold: 0.9
+            };
+            var firstCategory = categoriesWrapper.children[0];
+            var lastCategory = categoriesWrapper.children[this.config.categories.length];
+            var firstCategoryObserver = new IntersectionObserver(function (e) {
+              _this6.categoryObserverCb(leftArrow, e[0].intersectionRatio >= 0.9);
+            }, options);
+            firstCategoryObserver.observe(firstCategory);
+            var lastCategoryObserver = new IntersectionObserver(function (e) {
+              _this6.categoryObserverCb(rightArrow, e[0].intersectionRatio >= 0.9);
+            }, options);
+            lastCategoryObserver.observe(lastCategory);
+            return categoriesContainer;
+          }
+        }, {
+          key: "categoryObserverCb",
+          value: function categoryObserverCb(el, hide) {
+            if (!el) {
+              return;
+            }
+
+            el.style.display = hide ? 'none' : 'flex';
+          }
+        }, {
+          key: "updateActiveCategory",
+          value: function updateActiveCategory(activeCategory) {
+            var _this7 = this;
+
+            this.selectedCategory = activeCategory;
+            this.inboxCard.scrollTop = 0;
+            var counter = 0;
+            this.prevCategoryRef && this.prevCategoryRef.setAttribute('selected', 'false');
+            this.selectedCategoryRef.setAttribute('selected', 'true');
+            this.inboxCard.childNodes.forEach(function (c) {
+              if (c.getAttribute('id') !== 'emptyInboxMsg') {
+                c.style.display = _this7.selectedCategory === 'All' || c.getAttribute('category') === _this7.selectedCategory ? 'block' : 'none';
+
+                if (c.style.display === 'block') {
+                  counter++;
+                }
+              }
+            });
+
+            if (counter === 0) {
+              this.emptyInboxMsg.innerText = "".concat(activeCategory, " messages will be displayed here.");
+              this.emptyInboxMsg.style.display = 'block';
+            } else {
+              this.emptyInboxMsg.style.display = 'none';
+            }
+          }
+        }, {
+          key: "buildUIForMessages",
+          value: function buildUIForMessages() {
+            var _this$config$maxMsgsI;
+
+            var messages = arguments.length > 0 && arguments[0] !== undefined ? arguments[0] : {};
+            !this.isPreview && this.updateTSForRenderedMsgs();
+            this.inboxCard.scrollTop = 0;
+            var maxMsgsInInbox = (_this$config$maxMsgsI = this.config.maxMsgsInInbox) !== null && _this$config$maxMsgsI !== void 0 ? _this$config$maxMsgsI : MAX_INBOX_MSG;
+            var firstChild = this.inboxCard.firstChild;
+            var sortedMsgs = Object.values(messages).sort(function (a, b) {
+              return b.date - a.date;
+            }).map(function (m) {
+              return m.id;
+            });
+
+            var _iterator = _createForOfIteratorHelper(sortedMsgs),
+                _step;
+
+            try {
+              for (_iterator.s(); !(_step = _iterator.n()).done;) {
+                var m = _step.value;
+                var item = new Message(this.config, messages[m]);
+                item.setAttribute('id', messages[m].id);
+                item.setAttribute('pivot', messages[m].wzrk_pivot);
+                item.setAttribute('part', 'ct-inbox-message');
+
+                if (this.config.categories.length > 0) {
+                  item.setAttribute('category', messages[m].tags[0] || '');
+                  item.style.display = this.selectedCategory === 'All' || messages[m].category === this.selectedCategory ? 'block' : 'none';
+                } else {
+                  item.style.display = 'block';
+                }
+
+                this.inboxCard.insertBefore(item, firstChild);
+                this.observer.observe(item);
+              }
+            } catch (err) {
+              _iterator.e(err);
+            } finally {
+              _iterator.f();
+            }
+
+            var msgTotalCount = this.inboxCard.querySelectorAll('ct-inbox-message').length;
+
+            while (msgTotalCount > maxMsgsInInbox) {
+              var ctInboxMsgs = this.inboxCard.querySelectorAll('ct-inbox-message');
+
+              if (ctInboxMsgs.length > 0) {
+                ctInboxMsgs[ctInboxMsgs.length - 1].remove();
+              }
+
+              msgTotalCount--;
+            }
+
+            var hasMessages = this.inboxCard.querySelectorAll('ct-inbox-message[style*="display: block"]').length;
+            this.emptyInboxMsg.style.display = hasMessages ? 'none' : 'block';
+          }
+          /**
+           * Adds a click listener on the document. For every click we check
+           * 1. if the click has happenned within the inbox
+           *    - on close button, we close the inbox
+           *    - on any of the category, we set that as the activeCategory
+           *    - on any of the message, we mark raise notification clicked event. To identify the clicks on a button, we have p.id.startsWith('button-')
+           * 2. if the user has clicked on the inboxSelector, we toggle inbox
+           * 3. if the click is anywhere else on the UI and the inbox is open, we simply close it
+           */
+
+        }, {
+          key: "handleMessageViewed",
+
+          /**
+           * This function will be called every time when a message comes into the inbox viewport and it's visibility increases to 50% or drops below 50%
+           * If a msg is 50% visible in the UI, we need to mark the message as viewed in LS and raise notification viewed event
+           */
+          value: function handleMessageViewed(entries) {
+            var _this8 = this;
+
+            var raiseViewedEvent = !this.isPreview;
+
+            if (this.isInboxOpen) {
+              entries.forEach(function (e) {
+                if (e.isIntersecting && _this8.unviewedMessages.hasOwnProperty(e.target.id) && e.target.message.viewed === 0) {
+                  e.target.message.viewed = 1;
+
+                  if (raiseViewedEvent) {
+                    window.clevertap.renderNotificationViewed({
+                      msgId: e.target.campaignId,
+                      pivotId: e.target.pivotId
+                    });
+
+                    _this8.updateMessageInLS(e.target.id, _objectSpread2(_objectSpread2({}, e.target.message), {}, {
+                      viewed: 1
+                    }));
+
+                    setTimeout(function () {
+                      e.target.shadowRoot.getElementById('unreadMarker').style.display = 'none';
+                    }, 1000);
+                  } else {
+                    console.log('Notifiction viewed event will be raised at run time with payload ::', {
+                      msgId: e.target.campaignId,
+                      pivotId: e.target.pivotId
+                    });
+                  }
+
+                  _this8.unviewedCounter--;
+
+                  _this8.updateUnviewedBadgeCounter();
+
+                  delete _this8.unviewedMessages[e.target.id];
+                }
+              });
+            }
+          }
+        }, {
+          key: "updateMessageInLS",
+          value: function updateMessageInLS(key, value) {
+            if (!this.isPreview) {
+              var messages = getInboxMessages();
+              messages[key] = value;
+              saveInboxMessages(messages);
+            }
+          } // create a separte fn fro refactoring
+
+        }, {
+          key: "toggleInbox",
+          value: function toggleInbox(e) {
+            this.isInboxOpen = !this.isInboxOpen;
+
+            if (this.isInboxOpen) {
+              this.inboxCard.scrollTop = 0;
+              !this.isPreview && this.deleteExpiredAndGetUnexpiredMsgs();
+              this.inbox.style.display = 'block';
+              this.inbox.style.zIndex = '2147483647'; // zIndex should be max for the inbox to be rendered on top of all elements
+
+              if (this.config.categories.length) {
+                this.selectedCategoryRef.setAttribute('selected', 'false');
+                this.selectedCategoryRef = this.shadowRoot.getElementById('category-0');
+                this.updateActiveCategory(this.selectedCategoryRef.innerText);
+                this.shadowRoot.getElementById('categoriesWrapper').scrollLeft -= this.shadowRoot.getElementById('categoriesWrapper').scrollWidth;
+              }
+
+              this.setInboxPosition(e);
+            } else {
+              this.inbox.style.display = 'none';
+            }
+          }
+        }, {
+          key: "setInboxPosition",
+          value: function setInboxPosition(e) {
+            var windowWidth = window.outerWidth;
+            var customInboxStyles = getComputedStyle($ct.inbox);
+            var top = customInboxStyles.getPropertyValue('--inbox-top');
+            var bottom = customInboxStyles.getPropertyValue('--inbox-bottom');
+            var left = customInboxStyles.getPropertyValue('--inbox-left');
+            var right = customInboxStyles.getPropertyValue('--inbox-right');
+            var hasPositionDefined = top || bottom || left || right;
+
+            if (windowWidth > 481 && !hasPositionDefined) {
+              var res = getInboxPosition(e, this.inbox.clientHeight, this.inbox.clientWidth);
+              var xPos = res.xPos;
+              var yPos = res.yPos;
+              this.inbox.style.top = yPos + 'px';
+              this.inbox.style.left = xPos + 'px';
+            }
+          }
+          /**
+           * Updates the UI with the number of unviewed messages
+           * If there are more than 9 unviewed messages, we show the count as 9+
+           */
+
+        }, {
+          key: "updateUnviewedBadgeCounter",
+          value: function updateUnviewedBadgeCounter() {
+            if (this.isPreview) {
+              this.setBadgeStyle(this.unviewedCounter);
+              return;
+            }
+
+            var counter = 0;
+            this.inboxCard.querySelectorAll('ct-inbox-message').forEach(function (m) {
+              var messages = getInboxMessages();
+
+              if (messages[m.id] && messages[m.id].viewed === 0) {
+                counter++;
+              }
+            });
+            this.setBadgeStyle(counter);
+          }
+        }, {
+          key: "updateTSForRenderedMsgs",
+          value: function updateTSForRenderedMsgs() {
+            this.inboxCard.querySelectorAll('ct-inbox-message').forEach(function (m) {
+              var ts = m.id.split('_')[1];
+              m.shadow.getElementById('timeStamp').firstChild.innerText = determineTimeStampText(ts);
+            });
+          }
+        }, {
+          key: "getInboxStyles",
+          value: function getInboxStyles() {
+            var headerHeight = 36;
+            var categoriesHeight = this.config.categories.length ? 64 : 16;
+            var hidePoweredByCTHeight = this.config.hidePoweredByCT === false ? 32 : 0;
+            var styles = {
+              panelBackgroundColor: this.config.styles.panelBackgroundColor,
+              panelBorderColor: this.config.styles.panelBorderColor,
+              headerBackgroundColor: this.config.styles.header.backgroundColor,
+              headerTitleColor: this.config.styles.header.titleColor,
+              closeIconColor: this.config.styles.closeIconColor,
+              categoriesTabColor: this.config.styles.categories.tabColor,
+              categoriesTitleColor: this.config.styles.categories.titleColor,
+              selectedCategoryTabColor: this.config.styles.categories.selectedTab.tabColor,
+              selectedCategoryTitleColor: this.config.styles.categories.selectedTab.titleColor,
+              headerCategoryAndPoweredByCTHeight: headerHeight + categoriesHeight + hidePoweredByCTHeight
+            };
+
+            if (this.config.styles.categories.borderColor) {
+              styles.categoriesBorderColor = this.config.styles.categories.borderColor;
+            }
+
+            if (this.config.styles.categories.selectedTab.borderColor) {
+              styles.selectedCategoryBorderColor = this.config.styles.categories.selectedTab.borderColor;
+            }
+
+            var inboxStyles = inboxContainerStyles(styles);
+            var cardStyles = this.config.styles.cards;
+            var msgStyles = messageStyles({
+              backgroundColor: cardStyles.backgroundColor,
+              borderColor: cardStyles.borderColor,
+              titleColor: cardStyles.titleColor,
+              descriptionColor: cardStyles.descriptionColor,
+              buttonColor: cardStyles.buttonColor,
+              buttonTextColor: cardStyles.buttonTextColor,
+              unreadMarkerColor: cardStyles.unreadMarkerColor
+            });
+            return inboxStyles + msgStyles;
+          }
+        }, {
+          key: "incomingMessages",
+          get: function get() {
+            return [];
+          },
+          set: function set() {
+            var msgs = arguments.length > 0 && arguments[0] !== undefined ? arguments[0] : [];
+
+            if (msgs.length > 0 && this.inbox) {
+              this.updateInboxMessages(msgs);
+            }
+          }
+        }, {
+          key: "incomingMessagesForPreview",
+          get: function get() {
+            return [];
+          },
+          set: function set() {
+            var _this9 = this;
+
+            var msgs = arguments.length > 0 && arguments[0] !== undefined ? arguments[0] : [];
+
+            if (msgs.length > 0 && this.inbox) {
+              this.isPreview = true;
+              this.unviewedCounter = 0;
+              msgs.forEach(function (m) {
+                m.id = "".concat(m.wzrk_id.split('_')[0], "_").concat(Date.now());
+                _this9.unviewedMessages[m.id] = m;
+                _this9.unviewedCounter++;
+              });
+              this.buildUIForMessages(msgs);
+              this.updateUnviewedBadgeCounter();
+            }
+          }
+        }]);
+
+        return Inbox;
+      }( /*#__PURE__*/_wrapNativeSuper(HTMLElement));
+
+      var processWebInboxSettings = function processWebInboxSettings(webInboxSetting) {
+        var isPreview = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : false;
+
+        var _settings = StorageManager.readFromLSorCookie(WEBINBOX_CONFIG) || {};
+
+        if (isPreview) {
+          $ct.inbox.inboxConfigForPreview = webInboxSetting;
+          $ct.inbox.isPreview = true;
+          $ct.inbox && $ct.inbox.init();
+        } else if (JSON.stringify(_settings) !== JSON.stringify(webInboxSetting)) {
+          StorageManager.saveToLSorCookie(WEBINBOX_CONFIG, webInboxSetting);
+          $ct.inbox && $ct.inbox.init();
+        }
+      };
+      var processInboxNotifs = function processInboxNotifs(msg) {
+        if (msg.inbox_preview) {
+          $ct.inbox.incomingMessagesForPreview = msg.inbox_notifs;
+        } else {
+          $ct.inbox.incomingMessages = msg;
+        }
+      };
+      var addWebInbox = function addWebInbox(logger) {
+        checkAndRegisterWebInboxElements();
+        $ct.inbox = new Inbox({
+          logger: logger
+        });
+        document.body.appendChild($ct.inbox);
+      };
+
+      var getAndMigrateInboxMessages = function getAndMigrateInboxMessages(guid) {
+        var messages = StorageManager.readFromLSorCookie(WEBINBOX) || {}; // Doing this to migrate message to guid level
+
+        if (Object.keys(messages).length > 0 && Object.keys(messages)[0].includes('_')) {
+          var gudInboxObj = {};
+          gudInboxObj[guid] = messages;
+          StorageManager.saveToLSorCookie(WEBINBOX, gudInboxObj);
+          return gudInboxObj;
+        }
+
+        return messages;
+      };
+
+      var getInboxMessages = function getInboxMessages() {
+        var guid = JSON.parse(decodeURIComponent(StorageManager.read(GCOOKIE_NAME)));
+
+        if (!isValueValid(guid)) {
+          return {};
+        }
+
+        var messages = getAndMigrateInboxMessages(guid);
+        return messages.hasOwnProperty(guid) ? messages[guid] : {};
+      };
+      var saveInboxMessages = function saveInboxMessages(messages) {
+        var guid = JSON.parse(decodeURIComponent(StorageManager.read(GCOOKIE_NAME)));
+
+        if (!isValueValid(guid)) {
+          return;
+        }
+
+        var storedInboxObj = getAndMigrateInboxMessages(guid);
+
+        var newObj = _objectSpread2(_objectSpread2({}, storedInboxObj), {}, _defineProperty({}, guid, messages));
+
+        StorageManager.saveToLSorCookie(WEBINBOX, newObj);
+      };
+      var initializeWebInbox = function initializeWebInbox(logger) {
+        return new Promise(function (resolve, reject) {
+          if (document.readyState === 'complete') {
+            addWebInbox(logger);
+            resolve();
+          } else {
+            var config = StorageManager.readFromLSorCookie(WEBINBOX_CONFIG) || {};
+
+            var onLoaded = function onLoaded() {
+              /**
+               * We need this null check here because $ct.inbox could be initialised via init method too on document load.
+               * In that case we don't need to call addWebInbox method
+               */
+              if ($ct.inbox === null) {
+                addWebInbox(logger);
+              }
+
+              resolve();
+            };
+
+            window.addEventListener('load', function () {
+              /**
+               * Scripts can be loaded layzily, we may not get element from dom as it may not be mounted yet
+               * We will to check element for 10 seconds and give up
+               */
+              if (document.getElementById(config.inboxSelector)) {
+                onLoaded();
+              } else {
+                // check for element for next 10 seconds
+                var count = 0;
+
+                if (count < 20) {
+                  var t = setInterval(function () {
+                    if (document.getElementById(config.inboxSelector)) {
+                      onLoaded();
+                      clearInterval(t);
+                      resolve();
+                    } else if (count >= 20) {
+                      clearInterval(t);
+                      logger.debug('Failed to add inbox');
+                    }
+
+                    count++;
+                  }, 500);
+                }
+              }
+            });
+          }
+        });
+      };
+      var checkAndRegisterWebInboxElements = function checkAndRegisterWebInboxElements() {
+        if (customElements.get('ct-web-inbox') === undefined) {
+          customElements.define('ct-web-inbox', Inbox);
+          customElements.define('ct-inbox-message', Message);
+        }
+      };
+      var getInboxPosition = function getInboxPosition(e, inboxHeight, inboxWidth) {
+        var horizontalScroll = document.scrollingElement.scrollLeft;
+        var verticalScroll = document.scrollingElement.scrollTop;
+        var windowWidth = window.innerWidth + horizontalScroll;
+        var windowHeight = window.innerHeight + verticalScroll;
+        var selectorRect = e.target.getBoundingClientRect();
+        var selectorX = selectorRect.x + horizontalScroll;
+        var selectorY = selectorRect.y + verticalScroll;
+        var selectorLeft = selectorRect.left + horizontalScroll;
+        var selectorRight = selectorRect.right + horizontalScroll;
+        var selectorTop = selectorRect.top + verticalScroll;
+        var selectorBottom = selectorRect.bottom + verticalScroll;
+        var selectorHeight = selectorRect.height;
+        var selectorWidth = selectorRect.width;
+        var selectorCenter = {
+          x: selectorX + selectorWidth / 2,
+          y: selectorY + selectorHeight / 2
+        };
+        var halfOfInboxHeight = inboxHeight / 2;
+        var halfOfInboxWidth = inboxWidth / 2;
+        var inboxOnSide = false;
+        var xPos, yPos;
+        var padding = 16;
+        /**
+         * y co-ordinates:
+         * Try to push the card downwards
+         * if that's not possible, push it upwards
+         * if that too is not possible, then the card will be placed on the side. Add some padding.
+         *
+         * x co-ordinates:
+         * If the card is on the side,
+         *    try to place it to the right. If it's not possible,
+         *    place it to the left
+         * If the card is either on top/ bottom, set the x co-ordinate such that the selector center and the inbox card center become the same
+         * Now,
+         *  if the left of the inbox card is < 0,
+         *    try to get the left aligned to the selectorLeft.
+         *    if that's not possible, simply set left to 0
+         *  if the right of the inbox card > windowWidth,
+         *    try to get the right of rhe inbox card aligned with the selectorRight
+         *    if that's not possible, simply set the inbox right to the window Right
+         */
+
+        if (selectorBottom + inboxHeight <= windowHeight) {
+          // try to place the card down
+          var availableHeight = windowHeight - (selectorBottom + inboxHeight);
+          yPos = availableHeight >= padding ? selectorBottom + padding : selectorBottom + availableHeight;
+        } else if (selectorTop - inboxHeight >= verticalScroll) {
+          // try to place the card up
+          var _availableHeight = selectorTop - inboxHeight;
+
+          yPos = _availableHeight >= padding ? selectorTop - inboxHeight - padding : selectorTop - inboxHeight - _availableHeight;
+        } else {
+          inboxOnSide = true;
+          yPos = selectorCenter.y - halfOfInboxHeight; // with this the y co-ordinate of the selector center and the inbox card center become the same
+
+          if (yPos < verticalScroll) {
+            yPos = verticalScroll;
+          } else if (yPos + inboxHeight > windowHeight) {
+            yPos = windowHeight - inboxHeight;
+          }
+        }
+
+        if (inboxOnSide) {
+          // See if we can place the card to the right of the selector
+          var inboxRight = selectorRight + inboxWidth;
+
+          if (inboxRight <= windowWidth) {
+            var availableWidth = inboxRight + padding <= windowWidth ? padding : windowWidth - inboxRight;
+            xPos = selectorRight + availableWidth;
+          } else {
+            var inboxLeft = selectorLeft - inboxWidth;
+
+            var _availableWidth = inboxLeft - padding >= horizontalScroll ? padding : inboxLeft - horizontalScroll;
+
+            xPos = inboxLeft - _availableWidth;
+          }
+        } else {
+          xPos = selectorCenter.x - halfOfInboxWidth;
+
+          if (xPos < horizontalScroll) {
+            if (selectorLeft + inboxWidth <= windowWidth) {
+              xPos = selectorLeft;
+            } else {
+              xPos = horizontalScroll;
+            }
+          } else if (xPos + inboxWidth > windowWidth) {
+            if (selectorRight - inboxWidth >= horizontalScroll) {
+              xPos = selectorRight - inboxWidth;
+            } else {
+              xPos = windowWidth - inboxWidth;
+            }
+          }
+        }
+
+        return {
+          xPos: xPos,
+          yPos: yPos
+        };
+      };
+      var determineTimeStampText = function determineTimeStampText(ts) {
+        var now = Date.now();
+        var diff = Math.floor((now - ts) / 60000);
+
+        if (diff < 5) {
+          return 'Just now';
+        }
+
+        if (diff < 60) {
+          return "".concat(diff, " minute").concat(diff > 1 ? 's' : '', " ago");
+        }
+
+        diff = Math.floor(diff / 60);
+
+        if (diff < 24) {
+          return "".concat(diff, " hour").concat(diff > 1 ? 's' : '', " ago");
+        }
+
+        diff = Math.floor(diff / 24);
+        return "".concat(diff, " day").concat(diff > 1 ? 's' : '', " ago");
+      };
+      var hasWebInboxSettingsInLS = function hasWebInboxSettingsInLS() {
+        return Object.keys(StorageManager.readFromLSorCookie(WEBINBOX_CONFIG) || {}).length > 0;
+      };
+      var arrowSvg = "<svg width=\"6\" height=\"10\" viewBox=\"0 0 6 10\" fill=\"none\" xmlns=\"http://www.w3.org/2000/svg\">\n<path fill-rule=\"evenodd\" clip-rule=\"evenodd\" d=\"M0.258435 9.74751C-0.0478584 9.44825 -0.081891 8.98373 0.156337 8.64775L0.258435 8.52836L3.87106 5L0.258435 1.47164C-0.0478588 1.17239 -0.0818914 0.707867 0.156337 0.371887L0.258435 0.252494C0.564728 -0.0467585 1.04018 -0.0800085 1.38407 0.152743L1.50627 0.252494L5.74156 4.39042C6.04786 4.68968 6.08189 5.1542 5.84366 5.49018L5.74156 5.60957L1.50627 9.74751C1.16169 10.0842 0.603015 10.0842 0.258435 9.74751Z\" fill=\"#63698F\"/>\n</svg>\n";
+      var greenTickSvg = "<svg width=\"16\" height=\"16\" viewBox=\"0 0 16 16\" fill=\"none\" xmlns=\"http://www.w3.org/2000/svg\">\n<path fill-rule=\"evenodd\" clip-rule=\"evenodd\" d=\"M16 8C16 3.58172 12.4183 0 8 0C3.58172 0 0 3.58172 0 8C0 12.4183 3.58172 16 8 16C12.4183 16 16 12.4183 16 8ZM9.6839 5.93602C9.97083 5.55698 10.503 5.48833 10.8725 5.78269C11.2135 6.0544 11.2968 6.54044 11.0819 6.91173L11.0219 7.00198L8.09831 10.864C7.80581 11.2504 7.26654 11.3086 6.90323 11.0122L6.82822 10.9433L5.04597 9.10191C4.71635 8.76136 4.71826 8.21117 5.05023 7.87303C5.35666 7.5609 5.83722 7.53855 6.16859 7.80482L6.24814 7.87739L7.35133 9.01717L9.6839 5.93602Z\" fill=\"#03A387\"/>\n</svg>\n";
+
       var _tr = function _tr(msg, _ref) {
         var device = _ref.device,
             session = _ref.session,
             request = _ref.request,
-            logger = _ref.logger,
-            isWebPopUpSpamControlDisabled = _ref.isWebPopUpSpamControlDisabled;
+            logger = _ref.logger;
         var _device = device;
         var _session = session;
         var _request = request;
@@ -3809,57 +5200,100 @@ var CleverTapKit = (function (exports) {
 
           if (StorageManager._isLocalStorageSupported()) {
             delete sessionStorage[CAMP_COOKIE_NAME];
-            var campObj = getCampaignObject(); // global session limit. default is 1
+            var campTypeObj = {};
+            var campObj = getCampaignObject();
+
+            if (targetingMsgJson.display.wtarget_type === 3 && campObj.hasOwnProperty('wi')) {
+              campTypeObj = campObj.wi;
+            } else if ((targetingMsgJson.display.wtarget_type === 0 || targetingMsgJson.display.wtarget_type === 1) && campObj.hasOwnProperty('wp')) {
+              campTypeObj = campObj.wp;
+            } else {
+              campTypeObj = {};
+            }
+
+            if (campObj.hasOwnProperty('global')) {
+              campTypeObj.wp = campObj;
+            } // global session limit. default is 1
+
 
             if (targetingMsgJson[DISPLAY].wmc == null) {
               targetingMsgJson[DISPLAY].wmc = 1;
+            } // global session limit for web inbox. default is 1
+
+
+            if (targetingMsgJson[DISPLAY].wimc == null) {
+              targetingMsgJson[DISPLAY].wimc = 1;
             }
 
-            var excludeFromFreqCaps = -1;
-            var campaignSessionLimit = -1;
-            var campaignDailyLimit = -1;
-            var campaignTotalLimit = -1;
+            var excludeFromFreqCaps = -1; // efc - Exclude from frequency caps
+
+            var campaignSessionLimit = -1; // mdc - Once per session
+
+            var campaignDailyLimit = -1; // tdc - Once per day
+
+            var campaignTotalLimit = -1; // tlc - Once per user for the duration of campaign
+
             var totalDailyLimit = -1;
-            var totalSessionLimit = -1;
+            var totalSessionLimit = -1; // wmc - Web Popup Global Session Limit
+
+            var totalInboxSessionLimit = -1; // wimc - Web Inbox Global Session Limit
 
             if (targetingMsgJson[DISPLAY].efc != null) {
+              // exclude from frequency cap
               excludeFromFreqCaps = parseInt(targetingMsgJson[DISPLAY].efc, 10);
             }
 
             if (targetingMsgJson[DISPLAY].mdc != null) {
+              // Campaign Session Limit
               campaignSessionLimit = parseInt(targetingMsgJson[DISPLAY].mdc, 10);
             }
 
             if (targetingMsgJson[DISPLAY].tdc != null) {
+              // No of web popups in a day per campaign
               campaignDailyLimit = parseInt(targetingMsgJson[DISPLAY].tdc, 10);
             }
 
             if (targetingMsgJson[DISPLAY].tlc != null) {
+              // Total lifetime count
               campaignTotalLimit = parseInt(targetingMsgJson[DISPLAY].tlc, 10);
             }
 
             if (targetingMsgJson[DISPLAY].wmp != null) {
+              // No of campaigns per day
               totalDailyLimit = parseInt(targetingMsgJson[DISPLAY].wmp, 10);
             }
 
             if (targetingMsgJson[DISPLAY].wmc != null) {
+              // No of campaigns per session
               totalSessionLimit = parseInt(targetingMsgJson[DISPLAY].wmc, 10);
+            }
+
+            if (targetingMsgJson[DISPLAY].wimc != null) {
+              // No of inbox campaigns per session
+              totalInboxSessionLimit = parseInt(targetingMsgJson[DISPLAY].wimc, 10);
             } // session level capping
 
 
-            var _sessionObj = campObj[_session.sessionId];
+            var sessionObj = campTypeObj[_session.sessionId];
 
-            if (_sessionObj) {
-              var campaignSessionCount = _sessionObj[campaignId];
-              var totalSessionCount = _sessionObj.tc; // dnd
+            if (sessionObj) {
+              var campaignSessionCount = sessionObj[campaignId];
+              var totalSessionCount = sessionObj.tc; // dnd
 
-              if (campaignSessionCount === 'dnd') {
+              if (campaignSessionCount === 'dnd' && !$ct.dismissSpamControl) {
                 return false;
-              } // session
+              }
 
-
-              if (totalSessionLimit > 0 && totalSessionCount >= totalSessionLimit && excludeFromFreqCaps < 0) {
-                return false;
+              if (targetingMsgJson[DISPLAY].wtarget_type === 3) {
+                // Inbox session
+                if (totalInboxSessionLimit > 0 && totalSessionCount >= totalInboxSessionLimit && excludeFromFreqCaps < 0) {
+                  return false;
+                }
+              } else {
+                // session
+                if (totalSessionLimit > 0 && totalSessionCount >= totalSessionLimit && excludeFromFreqCaps < 0) {
+                  return false;
+                }
               } // campaign session
 
 
@@ -3867,12 +5301,12 @@ var CleverTapKit = (function (exports) {
                 return false;
               }
             } else {
-              _sessionObj = {};
-              campObj[_session.sessionId] = _sessionObj;
+              sessionObj = {};
+              campTypeObj[_session.sessionId] = sessionObj;
             } // daily level capping
 
 
-            var dailyObj = campObj[today];
+            var dailyObj = campTypeObj[today];
 
             if (dailyObj != null) {
               var campaignDailyCount = dailyObj[campaignId];
@@ -3888,10 +5322,10 @@ var CleverTapKit = (function (exports) {
               }
             } else {
               dailyObj = {};
-              campObj[today] = dailyObj;
+              campTypeObj[today] = dailyObj;
             }
 
-            var globalObj = campObj[GLOBAL];
+            var globalObj = campTypeObj[GLOBAL];
 
             if (globalObj != null) {
               var campaignTotalCount = globalObj[campaignId]; // campaign total
@@ -3901,7 +5335,7 @@ var CleverTapKit = (function (exports) {
               }
             } else {
               globalObj = {};
-              campObj[GLOBAL] = globalObj;
+              campTypeObj[GLOBAL] = globalObj;
             }
           } // delay
 
@@ -3918,17 +5352,21 @@ var CleverTapKit = (function (exports) {
             return false;
           }
 
-          var sessionObj = _session.getSessionCookieObject();
-
           incrCount(sessionObj, campaignId, excludeFromFreqCaps);
           incrCount(dailyObj, campaignId, excludeFromFreqCaps);
-          incrCount(globalObj, campaignId, excludeFromFreqCaps); // get ride of stale sessions and day entries
+          incrCount(globalObj, campaignId, excludeFromFreqCaps);
+          var campKey = 'wp';
+
+          if (targetingMsgJson[DISPLAY].wtarget_type === 3) {
+            campKey = 'wi';
+          } // get ride of stale sessions and day entries
+
 
           var newCampObj = {};
           newCampObj[_session.sessionId] = sessionObj;
           newCampObj[today] = dailyObj;
           newCampObj[GLOBAL] = globalObj;
-          saveCampaignObject(newCampObj);
+          saveCampaignObject(_defineProperty({}, campKey, newCampObj));
         };
 
         var getCookieParams = function getCookieParams() {
@@ -4020,24 +5458,47 @@ var CleverTapKit = (function (exports) {
         };
 
         var renderPersonalisationBanner = function renderPersonalisationBanner(targetingMsgJson) {
-          var divId = targetingMsgJson.display.divId;
+          var _targetingMsgJson$dis;
+
+          if (customElements.get('ct-web-personalisation-banner') === undefined) {
+            customElements.define('ct-web-personalisation-banner', CTWebPersonalisationBanner);
+          }
+
+          var divId = (_targetingMsgJson$dis = targetingMsgJson.display.divId) !== null && _targetingMsgJson$dis !== void 0 ? _targetingMsgJson$dis : targetingMsgJson.display.divSelector;
           var bannerEl = document.createElement('ct-web-personalisation-banner');
           bannerEl.msgId = targetingMsgJson.wzrk_id;
           bannerEl.pivotId = targetingMsgJson.wzrk_pivot;
           bannerEl.divHeight = targetingMsgJson.display.divHeight;
           bannerEl.details = targetingMsgJson.display.details[0];
-          var containerEl = document.getElementById(divId);
+          var containerEl = targetingMsgJson.display.divId ? document.getElementById(divId) : document.querySelector(divId);
           containerEl.innerHTML = '';
           containerEl.appendChild(bannerEl);
         };
 
         var renderPersonalisationCarousel = function renderPersonalisationCarousel(targetingMsgJson) {
-          var divId = targetingMsgJson.display.divId;
+          var _targetingMsgJson$dis2;
+
+          if (customElements.get('ct-web-personalisation-carousel') === undefined) {
+            customElements.define('ct-web-personalisation-carousel', CTWebPersonalisationCarousel);
+          }
+
+          var divId = (_targetingMsgJson$dis2 = targetingMsgJson.display.divId) !== null && _targetingMsgJson$dis2 !== void 0 ? _targetingMsgJson$dis2 : targetingMsgJson.display.divSelector;
           var carousel = document.createElement('ct-web-personalisation-carousel');
           carousel.target = targetingMsgJson;
-          var container = document.getElementById(divId);
+          var container = targetingMsgJson.display.divId ? document.getElementById(divId) : document.querySelector(divId);
           container.innerHTML = '';
           container.appendChild(carousel);
+        };
+
+        var renderPopUpImageOnly = function renderPopUpImageOnly(targetingMsgJson) {
+          var divId = 'wzrkImageOnlyDiv';
+          var popupImageOnly = document.createElement('ct-web-popup-imageonly');
+          popupImageOnly.session = _session;
+          popupImageOnly.target = targetingMsgJson;
+          var containerEl = document.getElementById(divId);
+          containerEl.innerHTML = '';
+          containerEl.style.visibility = 'hidden';
+          containerEl.appendChild(popupImageOnly);
         };
 
         var renderFooterNotification = function renderFooterNotification(targetingMsgJson) {
@@ -4045,6 +5506,7 @@ var CleverTapKit = (function (exports) {
           var displayObj = targetingMsgJson.display;
 
           if (displayObj.wtarget_type === 2) {
+            // Handling Web Native display
             // Logic for kv pair data
             if (targetingMsgJson.msgContent.type === 1) {
               var inaObj = {};
@@ -4063,52 +5525,54 @@ var CleverTapKit = (function (exports) {
               });
               document.dispatchEvent(kvPairsEvent);
               return;
-            } // Logic for personalisation banner
-
-
-            if (targetingMsgJson.msgContent.type === 2) {
-              var _divId = targetingMsgJson.display.divId;
-
-              if (document.getElementById(_divId) == null) {
-                return;
-              }
-
-              if (customElements.get('ct-web-personalisation-banner') === undefined) {
-                customElements.define('ct-web-personalisation-banner', CTWebPersonalisationBanner);
-              }
-
-              return renderPersonalisationBanner(targetingMsgJson);
-            } // Logic for personalisation carousel
-
-
-            if (targetingMsgJson.msgContent.type === 3) {
-              var _divId2 = targetingMsgJson.display.divId;
-
-              if (document.getElementById(_divId2) == null) {
-                return;
-              }
-
-              if (customElements.get('ct-web-personalisation-carousel') === undefined) {
-                customElements.define('ct-web-personalisation-carousel', CTWebPersonalisationCarousel);
-              }
-
-              return renderPersonalisationCarousel(targetingMsgJson);
             }
           }
 
           if (displayObj.layout === 1) {
+            // Handling Web Exit Intent
             return showExitIntent(undefined, targetingMsgJson);
           }
 
-          if (!isWebPopUpSpamControlDisabled && doCampHouseKeeping(targetingMsgJson) === false) {
+          if (displayObj.layout === 3) {
+            // Handling Web Popup Image Only
+            var _divId = 'wzrkImageOnlyDiv';
+
+            if (doCampHouseKeeping(targetingMsgJson) === false) {
+              return;
+            }
+
+            if ($ct.dismissSpamControl && document.getElementById(_divId) != null) {
+              var element = document.getElementById(_divId);
+              element.remove();
+            } // ImageOnly campaign and Interstitial/Exit Intent shouldn't coexist
+
+
+            if (document.getElementById(_divId) != null || document.getElementById('intentPreview') != null) {
+              return;
+            }
+
+            var _msgDiv = document.createElement('div');
+
+            _msgDiv.id = _divId;
+            document.body.appendChild(_msgDiv);
+
+            if (customElements.get('ct-web-popup-imageonly') === undefined) {
+              customElements.define('ct-web-popup-imageonly', CTWebPopupImageOnly);
+            }
+
+            return renderPopUpImageOnly(targetingMsgJson);
+          }
+
+          if (doCampHouseKeeping(targetingMsgJson) === false) {
             return;
           }
 
           var divId = 'wizParDiv' + displayObj.layout;
 
-          if (isWebPopUpSpamControlDisabled && document.getElementById(divId) != null) {
-            var element = document.getElementById(divId);
-            element.remove();
+          if ($ct.dismissSpamControl && document.getElementById(divId) != null) {
+            var _element = document.getElementById(divId);
+
+            _element.remove();
           }
 
           if (document.getElementById(divId) != null) {
@@ -4174,6 +5638,7 @@ var CleverTapKit = (function (exports) {
           if (targetingMsgJson.msgContent.type === 1) {
             html = targetingMsgJson.msgContent.html;
             html = html.replace(/##campaignId##/g, campaignId);
+            html = html.replace(/##campaignId_batchId##/g, targetingMsgJson.wzrk_id);
           } else {
             var css = '' + '<style type="text/css">' + 'body{margin:0;padding:0;}' + '#contentDiv.wzrk{overflow:hidden;padding:0;text-align:center;' + pointerCss + '}' + '#contentDiv.wzrk td{padding:15px 10px;}' + '.wzrkPPtitle{font-weight: bold;font-size: 16px;font-family:arial;padding-bottom:10px;word-break: break-word;}' + '.wzrkPPdscr{font-size: 14px;font-family:arial;line-height:16px;word-break: break-word;display:inline-block;}' + '.PL15{padding-left:15px;}' + '.wzrkPPwarp{margin:20px 20px 0 5px;padding:0px;border-radius: ' + borderRadius + 'px;box-shadow: 1px 1px 5px #888888;}' + 'a.wzrkClose{cursor:pointer;position: absolute;top: 11px;right: 11px;z-index: 2147483647;font-size:19px;font-family:arial;font-weight:bold;text-decoration: none;width: 25px;/*height: 25px;*/text-align: center; -webkit-appearance: none; line-height: 25px;' + 'background: #353535;border: #fff 2px solid;border-radius: 100%;box-shadow: #777 2px 2px 2px;color:#fff;}' + 'a:hover.wzrkClose{background-color:#d1914a !important;color:#fff !important; -webkit-appearance: none;}' + 'td{vertical-align:top;}' + 'td.imgTd{border-top-left-radius:8px;border-bottom-left-radius:8px;}' + '</style>';
             var bgColor, textColor, btnBg, leftTd, btColor;
@@ -4412,13 +5877,14 @@ var CleverTapKit = (function (exports) {
             targetingMsgJson = targetObj;
           }
 
-          if (isWebPopUpSpamControlDisabled && targetingMsgJson.display.wtarget_type === 0 && document.getElementById('intentPreview') != null && document.getElementById('intentOpacityDiv') != null) {
+          if ($ct.dismissSpamControl && targetingMsgJson.display.wtarget_type === 0 && document.getElementById('intentPreview') != null && document.getElementById('intentOpacityDiv') != null) {
             var element = document.getElementById('intentPreview');
             element.remove();
             document.getElementById('intentOpacityDiv').remove();
-          }
+          } // ImageOnly campaign and Interstitial/Exit Intent shouldn't coexist
 
-          if (document.getElementById('intentPreview') != null) {
+
+          if (document.getElementById('intentPreview') != null || document.getElementById('wzrkImageOnlyDiv') != null) {
             return;
           } // dont show exit intent on tablet/mobile - only on desktop
 
@@ -4427,12 +5893,11 @@ var CleverTapKit = (function (exports) {
             return;
           }
 
-          var campaignId = targetingMsgJson.wzrk_id.split('_')[0];
-
-          if (!isWebPopUpSpamControlDisabled && doCampHouseKeeping(targetingMsgJson) === false) {
+          if (doCampHouseKeeping(targetingMsgJson) === false) {
             return;
           }
 
+          var campaignId = targetingMsgJson.wzrk_id.split('_')[0];
           $ct.campaignDivMap[campaignId] = 'intentPreview';
           var legacy = false;
           var opacityDiv = document.createElement('div');
@@ -4469,6 +5934,7 @@ var CleverTapKit = (function (exports) {
           if (targetingMsgJson.msgContent.type === 1) {
             html = targetingMsgJson.msgContent.html;
             html = html.replace(/##campaignId##/g, campaignId);
+            html = html.replace(/##campaignId_batchId##/g, targetingMsgJson.wzrk_id);
           } else {
             var css = '' + '<style type="text/css">' + 'body{margin:0;padding:0;}' + '#contentDiv.wzrk{overflow:hidden;padding:0 0 20px 0;text-align:center;' + pointerCss + '}' + '#contentDiv.wzrk td{padding:15px 10px;}' + '.wzrkPPtitle{font-weight: bold;font-size: 24px;font-family:arial;word-break: break-word;padding-top:20px;}' + '.wzrkPPdscr{font-size: 14px;font-family:arial;line-height:16px;word-break: break-word;display:inline-block;padding:20px 20px 0 20px;line-height:20px;}' + '.PL15{padding-left:15px;}' + '.wzrkPPwarp{margin:20px 20px 0 5px;padding:0px;border-radius: ' + borderRadius + 'px;box-shadow: 1px 1px 5px #888888;}' + 'a.wzrkClose{cursor:pointer;position: absolute;top: 11px;right: 11px;z-index: 2147483647;font-size:19px;font-family:arial;font-weight:bold;text-decoration: none;width: 25px;/*height: 25px;*/text-align: center; -webkit-appearance: none; line-height: 25px;' + 'background: #353535;border: #fff 2px solid;border-radius: 100%;box-shadow: #777 2px 2px 2px;color:#fff;}' + 'a:hover.wzrkClose{background-color:#d1914a !important;color:#fff !important; -webkit-appearance: none;}' + '#contentDiv .button{padding-top:20px;}' + '#contentDiv .button a{font-size: 14px;font-weight:bold;font-family:arial;text-align:center;display:inline-block;text-decoration:none;padding:0 30px;height:40px;line-height:40px;background:#ea693b;color:#fff;border-radius:4px;-webkit-border-radius:4px;-moz-border-radius:4px;}' + '</style>';
             var bgColor, textColor, btnBg, btColor;
@@ -4535,16 +6001,79 @@ var CleverTapKit = (function (exports) {
           return;
         }
 
+        var processNativeDisplayArr = function processNativeDisplayArr(arrInAppNotifs) {
+          Object.keys(arrInAppNotifs).map(function (key) {
+            var elementId, id;
+
+            if (arrInAppNotifs[key].display.divId) {
+              elementId = arrInAppNotifs[key].display.divId;
+              id = document.getElementById(elementId);
+            } else {
+              elementId = arrInAppNotifs[key].display.divSelector;
+              id = document.querySelector(elementId);
+            }
+
+            if (id !== null) {
+              arrInAppNotifs[key].msgContent.type === 2 ? renderPersonalisationBanner(arrInAppNotifs[key]) : renderPersonalisationCarousel(arrInAppNotifs[key]);
+              delete arrInAppNotifs[key];
+            }
+          });
+        };
+
+        var addLoadListener = function addLoadListener(arrInAppNotifs) {
+          window.addEventListener('load', function () {
+            var count = 0;
+
+            if (count < 20) {
+              var t = setInterval(function () {
+                processNativeDisplayArr(arrInAppNotifs);
+
+                if (Object.keys(arrInAppNotifs).length === 0 || count === 20) {
+                  clearInterval(t);
+                  arrInAppNotifs = {};
+                }
+
+                count++;
+              }, 500);
+            }
+          });
+        };
+
         if (msg.inapp_notifs != null) {
+          var arrInAppNotifs = {};
+
           for (var index = 0; index < msg.inapp_notifs.length; index++) {
             var targetNotif = msg.inapp_notifs[index];
 
-            if (targetNotif.display.wtarget_type == null || targetNotif.display.wtarget_type === 0 || targetNotif.display.wtarget_type === 2) {
+            if (targetNotif.display.wtarget_type == null || targetNotif.display.wtarget_type === 0) {
               showFooterNotification(targetNotif);
             } else if (targetNotif.display.wtarget_type === 1) {
               // if display['wtarget_type']==1 then exit intent
               exitintentObj = targetNotif;
               window.document.body.onmouseleave = showExitIntent;
+            } else if (targetNotif.display.wtarget_type === 2) {
+              // if display['wtarget_type']==2 then web native display
+              if (targetNotif.msgContent.type === 2 || targetNotif.msgContent.type === 3) {
+                // Check for banner and carousel
+                var element = targetNotif.display.divId ? document.getElementById(targetNotif.display.divId) : document.querySelector(targetNotif.display.divSelector);
+
+                if (element !== null) {
+                  targetNotif.msgContent.type === 2 ? renderPersonalisationBanner(targetNotif) : renderPersonalisationCarousel(targetNotif);
+                } else {
+                  arrInAppNotifs[targetNotif.wzrk_id.split('_')[0]] = targetNotif; // Add targetNotif to object
+                }
+              } else {
+                showFooterNotification(targetNotif);
+              }
+            }
+          } // Process banner or carousel campaign array
+
+
+          if (Object.keys(arrInAppNotifs).length) {
+            if (document.readyState === 'complete') {
+              processNativeDisplayArr(arrInAppNotifs);
+            } else {
+              addLoadListener(arrInAppNotifs);
             }
           }
         }
@@ -4575,6 +6104,70 @@ var CleverTapKit = (function (exports) {
           }
         };
 
+        var handleInboxNotifications = function handleInboxNotifications() {
+          if (msg.inbox_preview) {
+            processInboxNotifs(msg);
+            return;
+          }
+
+          if (msg.inbox_notifs) {
+            var msgArr = [];
+
+            for (var _index = 0; _index < msg.inbox_notifs.length; _index++) {
+              if (doCampHouseKeeping(msg.inbox_notifs[_index]) !== false) {
+                msgArr.push(msg.inbox_notifs[_index]);
+              }
+            }
+
+            processInboxNotifs(msgArr);
+          }
+        };
+
+        if (msg.webInboxSetting || msg.inbox_notifs != null) {
+          /**
+           * When the user visits a website for the 1st time after web inbox channel is setup,
+           * we need to initialise the inbox here because the initializeWebInbox method within init will not be executed
+           * as we would not have any entry related to webInboxSettings in the LS
+           */
+          if (hasWebInboxSettingsInLS()) {
+            checkAndRegisterWebInboxElements();
+          }
+
+          if ($ct.inbox === null) {
+            msg.webInboxSetting && processWebInboxSettings(msg.webInboxSetting);
+            initializeWebInbox(_logger).then(function () {
+              handleInboxNotifications();
+            }).catch(function (e) {});
+          } else {
+            handleInboxNotifications();
+          }
+        }
+
+        var staleDataUpdate = function staleDataUpdate(staledata, campType) {
+          var campObj = getCampaignObject();
+          var globalObj = campObj[campType].global;
+
+          if (globalObj != null && campType) {
+            for (var idx in staledata) {
+              if (staledata.hasOwnProperty(idx)) {
+                delete globalObj[staledata[idx]];
+
+                if (StorageManager.read(CAMP_COOKIE_G)) {
+                  var guidCampObj = JSON.parse(decodeURIComponent(StorageManager.read(CAMP_COOKIE_G)));
+                  var guid = JSON.parse(decodeURIComponent(StorageManager.read(GCOOKIE_NAME)));
+
+                  if (guidCampObj[guid] && guidCampObj[guid][campType] && guidCampObj[guid][campType][staledata[idx]]) {
+                    delete guidCampObj[guid][campType][staledata[idx]];
+                    StorageManager.save(CAMP_COOKIE_G, encodeURIComponent(JSON.stringify(guidCampObj)));
+                  }
+                }
+              }
+            }
+          }
+
+          saveCampaignObject(campObj);
+        };
+
         if (StorageManager._isLocalStorageSupported()) {
           try {
             if (msg.evpr != null) {
@@ -4598,19 +6191,14 @@ var CleverTapKit = (function (exports) {
               arp(msg.arp);
             }
 
-            if (msg.inapp_stale != null) {
-              var campObj = getCampaignObject();
-              var globalObj = campObj.global;
+            if (msg.inapp_stale != null && msg.inapp_stale.length > 0) {
+              // web popup stale
+              staleDataUpdate(msg.inapp_stale, 'wp');
+            }
 
-              if (globalObj != null) {
-                for (var idx in msg.inapp_stale) {
-                  if (msg.inapp_stale.hasOwnProperty(idx)) {
-                    delete globalObj[msg.inapp_stale[idx]];
-                  }
-                }
-              }
-
-              saveCampaignObject(campObj);
+            if (msg.inbox_stale != null && msg.inbox_stale.length > 0) {
+              // web inbox stale
+              staleDataUpdate(msg.inbox_stale, 'wi');
             }
           } catch (e) {
             _logger.error('Unable to persist evrp/arp: ' + e);
@@ -5083,7 +6671,9 @@ var CleverTapKit = (function (exports) {
             var now = getNow();
             url = addToURL(url, 'rn', ++$ct.globalCache.REQ_N);
             var data = url + '&i=' + now + '&sn=' + seqNo;
-            StorageManager.backupEvent(data, $ct.globalCache.REQ_N, _classPrivateFieldLooseBase(this, _logger$6)[_logger$6]); // if there is no override
+            StorageManager.backupEvent(data, $ct.globalCache.REQ_N, _classPrivateFieldLooseBase(this, _logger$6)[_logger$6]); // if offline is set to true, save the request in backup and return
+
+            if ($ct.offline) return; // if there is no override
             // and an OUL request is not in progress
             // then process the request as it is
             // else block the request
@@ -5097,6 +6687,7 @@ var CleverTapKit = (function (exports) {
                 seqNo = 0;
               }
 
+              window.oulReqN = $ct.globalCache.REQ_N;
               RequestDispatcher.fireRequest(data, false, sendOULFlag);
             } else {
               _classPrivateFieldLooseBase(this, _logger$6)[_logger$6].debug("Not fired due to override - ".concat($ct.blockRequest, " or clearCookie - ").concat(_classPrivateFieldLooseBase(this, _clearCookie)[_clearCookie], " or OUL request in progress - ").concat(window.isOULInProgress));
@@ -5888,7 +7479,7 @@ var CleverTapKit = (function (exports) {
 
       var _boundCheckPageChanged = _classPrivateFieldLooseKey("boundCheckPageChanged");
 
-      var _isWebPopUpSpamControlDisabled = _classPrivateFieldLooseKey("isWebPopUpSpamControlDisabled");
+      var _dismissSpamControl = _classPrivateFieldLooseKey("dismissSpamControl");
 
       var _processOldValues = _classPrivateFieldLooseKey("processOldValues");
 
@@ -5923,11 +7514,12 @@ var CleverTapKit = (function (exports) {
         }, {
           key: "dismissSpamControl",
           get: function get() {
-            return _classPrivateFieldLooseBase(this, _isWebPopUpSpamControlDisabled)[_isWebPopUpSpamControlDisabled];
+            return _classPrivateFieldLooseBase(this, _dismissSpamControl)[_dismissSpamControl];
           },
           set: function set(value) {
-            var isWebPopUpSpamControlDisabled = value === true;
-            _classPrivateFieldLooseBase(this, _isWebPopUpSpamControlDisabled)[_isWebPopUpSpamControlDisabled] = isWebPopUpSpamControlDisabled;
+            var dismissSpamControl = value === true;
+            _classPrivateFieldLooseBase(this, _dismissSpamControl)[_dismissSpamControl] = dismissSpamControl;
+            $ct.dismissSpamControl = dismissSpamControl;
           }
         }]);
 
@@ -5997,7 +7589,7 @@ var CleverTapKit = (function (exports) {
             writable: true,
             value: _classPrivateFieldLooseBase(this, _checkPageChanged)[_checkPageChanged].bind(this)
           });
-          Object.defineProperty(this, _isWebPopUpSpamControlDisabled, {
+          Object.defineProperty(this, _dismissSpamControl, {
             writable: true,
             value: void 0
           });
@@ -6014,6 +7606,7 @@ var CleverTapKit = (function (exports) {
           _classPrivateFieldLooseBase(this, _device$3)[_device$3] = new DeviceManager({
             logger: _classPrivateFieldLooseBase(this, _logger$9)[_logger$9]
           });
+          _classPrivateFieldLooseBase(this, _dismissSpamControl)[_dismissSpamControl] = clevertap.dismissSpamControl || false;
           _classPrivateFieldLooseBase(this, _session$3)[_session$3] = new SessionManager({
             logger: _classPrivateFieldLooseBase(this, _logger$9)[_logger$9],
             isPersonalisationActive: this._isPersonalisationActive
@@ -6110,6 +7703,141 @@ var CleverTapKit = (function (exports) {
             pageLoadUrl = addToURL(pageLoadUrl, 'd', compressData(JSON.stringify(data), _classPrivateFieldLooseBase(_this, _logger$9)[_logger$9]));
 
             _classPrivateFieldLooseBase(_this, _request$6)[_request$6].saveAndFireRequest(pageLoadUrl, $ct.blockRequest);
+          };
+
+          if (hasWebInboxSettingsInLS()) {
+            checkAndRegisterWebInboxElements();
+            initializeWebInbox(_classPrivateFieldLooseBase(this, _logger$9)[_logger$9]);
+          } // Get Inbox Message Count
+
+
+          this.getInboxMessageCount = function () {
+            var msgCount = getInboxMessages();
+            return Object.keys(msgCount).length;
+          }; // Get Inbox Unread Message Count
+
+
+          this.getInboxMessageUnreadCount = function () {
+            if ($ct.inbox) {
+              return $ct.inbox.unviewedCounter;
+            } else {
+              _classPrivateFieldLooseBase(_this, _logger$9)[_logger$9].debug('No unread messages');
+            }
+          }; // Get All Inbox messages
+
+
+          this.getAllInboxMessages = function () {
+            return getInboxMessages();
+          }; // Get only Unread messages
+
+
+          this.getUnreadInboxMessages = function () {
+            if ($ct.inbox) {
+              return $ct.inbox.unviewedMessages;
+            } else {
+              _classPrivateFieldLooseBase(_this, _logger$9)[_logger$9].debug('No unread messages');
+            }
+          }; // Get message object belonging to the given message id only. Message id should be a String
+
+
+          this.getInboxMessageForId = function (messageId) {
+            var messages = getInboxMessages();
+
+            if ((messageId !== null || messageId !== '') && messages.hasOwnProperty(messageId)) {
+              return messages[messageId];
+            } else {
+              _classPrivateFieldLooseBase(_this, _logger$9)[_logger$9].error('No message available for message Id ' + messageId);
+            }
+          }; // Delete message from the Inbox. Message id should be a String
+          // If the message to be deleted is unviewed then decrement the badge count, delete the message from unviewedMessages list
+          // Then remove the message from local storage and update cookie
+
+
+          this.deleteInboxMessage = function (messageId) {
+            var messages = getInboxMessages();
+
+            if ((messageId !== null || messageId !== '') && messages.hasOwnProperty(messageId)) {
+              var el = document.querySelector('ct-web-inbox').shadowRoot.getElementById(messageId);
+
+              if (messages[messageId].viewed === 0) {
+                $ct.inbox.unviewedCounter--;
+                delete $ct.inbox.unviewedMessages[messageId];
+                document.getElementById('unviewedBadge').innerText = $ct.inbox.unviewedCounter;
+                document.getElementById('unviewedBadge').style.display = $ct.inbox.unviewedCounter > 0 ? 'flex' : 'none';
+              }
+
+              el && el.remove();
+              delete messages[messageId];
+              saveInboxMessages(messages);
+            } else {
+              _classPrivateFieldLooseBase(_this, _logger$9)[_logger$9].error('No message available for message Id ' + messageId);
+            }
+          };
+          /* Mark Message as Read. Message id should be a String
+           - Check if the message Id exist in the unread message list
+           - Remove the unread marker, update the viewed flag, decrement the bage Count
+           - renderNotificationViewed */
+
+
+          this.markReadInboxMessage = function (messageId) {
+            var unreadMsg = $ct.inbox.unviewedMessages;
+            var messages = getInboxMessages();
+
+            if ((messageId !== null || messageId !== '') && unreadMsg.hasOwnProperty(messageId)) {
+              var el = document.querySelector('ct-web-inbox').shadowRoot.getElementById(messageId);
+
+              if (el !== null) {
+                el.shadowRoot.getElementById('unreadMarker').style.display = 'none';
+              }
+
+              messages[messageId].viewed = 1;
+              var counter = parseInt(document.getElementById('unviewedBadge').innerText) - 1;
+              document.getElementById('unviewedBadge').innerText = counter;
+              document.getElementById('unviewedBadge').style.display = counter > 0 ? 'flex' : 'none';
+              window.clevertap.renderNotificationViewed({
+                msgId: messages[messageId].wzrk_id,
+                pivotId: messages[messageId].pivotId
+              });
+              $ct.inbox.unviewedCounter--;
+              delete $ct.inbox.unviewedMessages[messageId];
+              saveInboxMessages(messages);
+            } else {
+              _classPrivateFieldLooseBase(_this, _logger$9)[_logger$9].error('No message available for message Id ' + messageId);
+            }
+          };
+          /* Mark all messages as read
+            - Get the count of unread messages, update unread marker style
+            - renderNotificationViewed, update the badge count and style
+          */
+
+
+          this.markReadAllInboxMessage = function () {
+            var unreadMsg = $ct.inbox.unviewedMessages;
+            var messages = getInboxMessages();
+
+            if (Object.keys(unreadMsg).length > 0) {
+              var msgIds = Object.keys(unreadMsg);
+              msgIds.forEach(function (key) {
+                var el = document.querySelector('ct-web-inbox').shadowRoot.getElementById(key);
+
+                if (el !== null) {
+                  el.shadowRoot.getElementById('unreadMarker').style.display = 'none';
+                }
+
+                messages[key].viewed = 1;
+                window.clevertap.renderNotificationViewed({
+                  msgId: messages[key].wzrk_id,
+                  pivotId: messages[key].wzrk_pivot
+                });
+              });
+              document.getElementById('unviewedBadge').innerText = 0;
+              document.getElementById('unviewedBadge').style.display = 'none';
+              saveInboxMessages(messages);
+              $ct.inbox.unviewedCounter = 0;
+              $ct.inbox.unviewedMessages = {};
+            } else {
+              _classPrivateFieldLooseBase(_this, _logger$9)[_logger$9].debug('All messages are already read');
+            }
           }; // method for notification viewed
 
 
@@ -6235,6 +7963,84 @@ var CleverTapKit = (function (exports) {
           var _handleEmailSubscription = function _handleEmailSubscription(subscription, reEncoded, fetchGroups) {
             handleEmailSubscription(subscription, reEncoded, fetchGroups, _classPrivateFieldLooseBase(_this, _account$5)[_account$5], _classPrivateFieldLooseBase(_this, _logger$9)[_logger$9]);
           };
+          /**
+           *
+           * @param {number} lat
+           * @param {number} lng
+           * @param {callback function} handleCoordinates
+           * @returns
+          */
+
+
+          this.getLocation = function (lat, lng) {
+            // latitude and longitude should be number type
+            if (lat && typeof lat !== 'number' || lng && typeof lng !== 'number') {
+              console.log('Latitude and Longitude must be of number type');
+              return;
+            }
+
+            if (lat && lng) {
+              // valid latitude ranges bw +-90
+              if (lat <= -90 || lat > 90) {
+                console.log('A vaid latitude must range between -90 and 90');
+                return;
+              } // valid longitude ranges bw +-180
+
+
+              if (lng <= -180 || lng > 180) {
+                console.log('A valid longitude must range between -180 and 180');
+                return;
+              }
+
+              $ct.location = {
+                Latitude: lat,
+                Longitude: lng
+              };
+              this.sendLocationData({
+                Latitude: lat,
+                Longitude: lng
+              });
+            } else {
+              if (navigator.geolocation) {
+                navigator.geolocation.getCurrentPosition(showPosition.bind(this), showError);
+              } else {
+                console.log('Geolocation is not supported by this browser.');
+              }
+            }
+          };
+
+          function showPosition(position) {
+            var lat = position.coords.latitude;
+            var lng = position.coords.longitude;
+            $ct.location = {
+              Latitude: lat,
+              Longitude: lng
+            };
+            this.sendLocationData({
+              Latitude: lat,
+              Longitude: lng
+            });
+          }
+
+          function showError(error) {
+            switch (error.code) {
+              case error.PERMISSION_DENIED:
+                console.log('User denied the request for Geolocation.');
+                break;
+
+              case error.POSITION_UNAVAILABLE:
+                console.log('Location information is unavailable.');
+                break;
+
+              case error.TIMEOUT:
+                console.log('The request to get user location timed out.');
+                break;
+
+              case error.UNKNOWN_ERROR:
+                console.log('An unknown error occurred.');
+                break;
+            }
+          }
 
           var api = _classPrivateFieldLooseBase(this, _api)[_api];
 
@@ -6254,8 +8060,7 @@ var CleverTapKit = (function (exports) {
               device: _classPrivateFieldLooseBase(_this, _device$3)[_device$3],
               session: _classPrivateFieldLooseBase(_this, _session$3)[_session$3],
               request: _classPrivateFieldLooseBase(_this, _request$6)[_request$6],
-              logger: _classPrivateFieldLooseBase(_this, _logger$9)[_logger$9],
-              isWebPopUpSpamControlDisabled: _classPrivateFieldLooseBase(_this, _isWebPopUpSpamControlDisabled)[_isWebPopUpSpamControlDisabled]
+              logger: _classPrivateFieldLooseBase(_this, _logger$9)[_logger$9]
             });
           };
 
@@ -6332,6 +8137,8 @@ var CleverTapKit = (function (exports) {
         _createClass(CleverTap, [{
           key: "init",
           value: function init(accountId, region, targetDomain) {
+            var _this2 = this;
+
             if (_classPrivateFieldLooseBase(this, _onloadcalled)[_onloadcalled] === 1) {
               // already initailsed
               return;
@@ -6366,8 +8173,6 @@ var CleverTapKit = (function (exports) {
               return;
             }
 
-            _classPrivateFieldLooseBase(this, _request$6)[_request$6].processBackupEvents();
-
             $ct.isPrivacyArrPushed = true;
 
             if ($ct.privacyArray.length > 0) {
@@ -6377,6 +8182,13 @@ var CleverTapKit = (function (exports) {
             _classPrivateFieldLooseBase(this, _processOldValues)[_processOldValues]();
 
             this.pageChanged();
+            var backupInterval = setInterval(function () {
+              if (_classPrivateFieldLooseBase(_this2, _device$3)[_device$3].gcookie) {
+                clearInterval(backupInterval);
+
+                _classPrivateFieldLooseBase(_this2, _request$6)[_request$6].processBackupEvents();
+              }
+            }, 3000);
 
             if (_classPrivateFieldLooseBase(this, _isSpa)[_isSpa]) {
               // listen to click on the document and check if URL has changed.
@@ -6391,9 +8203,18 @@ var CleverTapKit = (function (exports) {
           // after its been initialized
 
         }, {
+          key: "debounce",
+          value: function debounce(func, delay) {
+            var timeout;
+            return function () {
+              clearTimeout(timeout);
+              timeout = setTimeout(func, delay);
+            };
+          }
+        }, {
           key: "pageChanged",
           value: function pageChanged() {
-            var _this2 = this;
+            var _this3 = this;
 
             var currLocation = window.location.href;
             var urlParams = getURLParams(currLocation.toLowerCase()); // -- update page count
@@ -6461,8 +8282,11 @@ var CleverTapKit = (function (exports) {
               _classPrivateFieldLooseBase(this, _overrideDSyncFlag)[_overrideDSyncFlag](data);
             }
 
+            var proto = document.location.protocol;
+            proto = proto.replace(':', '');
             data.af = {
-              lib: 'web-sdk-v1.3.4'
+              lib: 'web-sdk-v1.6.6',
+              protocol: proto
             };
             pageLoadUrl = addToURL(pageLoadUrl, 'type', 'page');
             pageLoadUrl = addToURL(pageLoadUrl, 'd', compressData(JSON.stringify(data), _classPrivateFieldLooseBase(this, _logger$9)[_logger$9]));
@@ -6473,12 +8297,12 @@ var CleverTapKit = (function (exports) {
             setTimeout(function () {
               if (pgCount <= 3) {
                 // send ping for up to 3 pages
-                _classPrivateFieldLooseBase(_this2, _pingRequest)[_pingRequest]();
+                _classPrivateFieldLooseBase(_this3, _pingRequest)[_pingRequest]();
               }
 
-              if (_classPrivateFieldLooseBase(_this2, _isPingContinuous)[_isPingContinuous]()) {
+              if (_classPrivateFieldLooseBase(_this3, _isPingContinuous)[_isPingContinuous]()) {
                 setInterval(function () {
-                  _classPrivateFieldLooseBase(_this2, _pingRequest)[_pingRequest]();
+                  _classPrivateFieldLooseBase(_this3, _pingRequest)[_pingRequest]();
                 }, CONTINUOUS_PING_FREQ_IN_MILLIS);
               }
             }, FIRST_PING_FREQ_IN_MILLIS);
@@ -6489,13 +8313,13 @@ var CleverTapKit = (function (exports) {
             return StorageManager._isLocalStorageSupported() && this.enablePersonalization;
           }
         }, {
-          key: "sendMultiValueData",
+          key: "sendLocationData",
 
           /**
            *
            * @param {object} payload
            */
-          value: function sendMultiValueData(payload) {
+          value: function sendLocationData(payload) {
             // Send the updated value to LC
             var data = {};
             data.af = {};
@@ -6515,6 +8339,10 @@ var CleverTapKit = (function (exports) {
               });
             }
 
+            if ($ct.location) {
+              data.af = _objectSpread2(_objectSpread2({}, data.af), $ct.location);
+            }
+
             data = _classPrivateFieldLooseBase(this, _request$6)[_request$6].addSystemDataToProfileObject(data, undefined);
 
             _classPrivateFieldLooseBase(this, _request$6)[_request$6].addFlags(data);
@@ -6527,6 +8355,28 @@ var CleverTapKit = (function (exports) {
             pageLoadUrl = addToURL(pageLoadUrl, 'd', compressedData);
 
             _classPrivateFieldLooseBase(this, _request$6)[_request$6].saveAndFireRequest(pageLoadUrl, $ct.blockRequest);
+          } // offline mode
+
+          /**
+           * events will be recorded and queued locally when passed with true
+           * but will not be sent to the server until offline is disabled by passing false
+           * @param {boolean} arg
+           */
+
+        }, {
+          key: "setOffline",
+          value: function setOffline(arg) {
+            if (typeof arg !== 'boolean') {
+              console.error('setOffline should be called with a value of type boolean');
+              return;
+            }
+
+            $ct.offline = arg; // if offline is disabled
+            // process events from cache
+
+            if (!arg) {
+              _classPrivateFieldLooseBase(this, _request$6)[_request$6].processBackupEvents();
+            }
           }
         }, {
           key: "popupCallback",
@@ -6552,9 +8402,14 @@ var CleverTapKit = (function (exports) {
       };
 
       var _checkPageChanged2 = function _checkPageChanged2() {
-        if (_classPrivateFieldLooseBase(this, _previousUrl)[_previousUrl] !== location.href) {
-          this.pageChanged();
-        }
+        var _this4 = this;
+
+        var debouncedPageChanged = this.debounce(function () {
+          if (_classPrivateFieldLooseBase(_this4, _previousUrl)[_previousUrl] !== location.href) {
+            _this4.pageChanged();
+          }
+        }, 300);
+        debouncedPageChanged();
       };
 
       var _pingRequest2 = function _pingRequest2() {
@@ -6601,7 +8456,7 @@ var CleverTapKit = (function (exports) {
             /* `forwarderSettings` contains your SDK specific settings such as apiKey that your customer needs in order to initialize your SDK properly */
             if (!testMode) {
                 common.forwardWebRequestsServerSide = forwarderSettings.forwardWebRequestsServerSide === 'True';
-                if (!forwarderSettings.forwardWebRequestsServerSide) {
+                if (!forwarderSettings.forwardWebRequestsServerSide || forwarderSettings.forwardWebRequestsServerSide === "False") {
                     let clevertap = clevertap$1;
                     window.clevertap = clevertap;
                     window.clevertap.init(forwarderSettings.accountID, forwarderSettings.region); 
@@ -7153,8 +9008,8 @@ var CleverTapKit = (function (exports) {
     }
 
     var SDKsettings = {
-        accountID: '449-W7Z-775Z',
-        region: 'eu1',
+        accountID: '445-8W7-956Z',
+        region: 'us1',
         forwardWebRequestsServerSide: false
         /* fill in SDKsettings with any particular settings or options your sdk requires in order to
         initialize, this may be apiKey, projectId, primaryCustomerType, etc. These are passed
