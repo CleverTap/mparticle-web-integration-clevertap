@@ -1,5 +1,7 @@
 # Change Log
 All notable changes to this project will be documented in this file.
+## [1.0.5]
+- Updates clevertap-web-sdk package version
 ## [1.0.4]
 - Updates clevertap-web-sdk package version
 ## [1.0.3]

@@ -644,7 +644,7 @@ var CleverTapKit = (function (exports) {
       var PR_COOKIE = 'WZRK_PR';
       var ARP_COOKIE = 'WZRK_ARP';
       var LCOOKIE_NAME = 'WZRK_L';
-      var GLOBAL = 'global';
+      var GLOBAL = 'global'; // used for email unsubscribe also
       var DISPLAY = 'display';
       var WEBPUSH_LS_KEY = 'WZRK_WPR';
       var OPTOUT_KEY = 'optOut';
@@ -1098,7 +1098,9 @@ var CleverTapKit = (function (exports) {
         privacyArray: [],
         offline: false,
         location: null,
-        dismissSpamControl: false // domain: window.location.hostname, url -> getHostName()
+        dismissSpamControl: false,
+        globalUnsubscribe: true,
+        flutterVersion: null // domain: window.location.hostname, url -> getHostName()
         // gcookie: -> device
 
       };
@@ -2767,6 +2769,7 @@ var CleverTapKit = (function (exports) {
 
         var encodedEmailId = urlParamsAsIs.e;
         var encodedProfileProps = urlParamsAsIs.p;
+        var pageType = urlParamsAsIs.page_type;
 
         if (typeof encodedEmailId !== 'undefined') {
           var data = {};
@@ -2797,6 +2800,11 @@ var CleverTapKit = (function (exports) {
 
           if (subscription !== '-1') {
             url = addToURL(url, 'sub', subscription);
+          }
+
+          if (pageType) {
+            $ct.globalUnsubscribe = pageType === GLOBAL;
+            url = addToURL(url, 'page_type', pageType);
           }
 
           RequestDispatcher.fireRequest(url);
@@ -2999,30 +3007,27 @@ var CleverTapKit = (function (exports) {
         }, {
           key: "_handleMultiValueAdd",
           value: function _handleMultiValueAdd(propKey, propVal, command) {
-            var array = [];
+            // Initialize array
+            var array = []; // Check if globalProfileMap is null, initialize if needed
 
             if ($ct.globalProfileMap == null) {
-              var _StorageManager$readF2;
-
-              $ct.globalProfileMap = (_StorageManager$readF2 = StorageManager.readFromLSorCookie(PR_COOKIE)) !== null && _StorageManager$readF2 !== void 0 ? _StorageManager$readF2 : {};
-            } // if the value to be set is either string or number
+              $ct.globalProfileMap = StorageManager.readFromLSorCookie(PR_COOKIE) || {};
+            } // Check if the value to be set is either string or number
 
 
             if (typeof propVal === 'string' || typeof propVal === 'number') {
               if ($ct.globalProfileMap.hasOwnProperty(propKey)) {
-                array = $ct.globalProfileMap[propKey];
-                typeof propVal === 'number' ? array.push(propVal) : array.push(propVal.toLowerCase());
+                array = $ct.globalProfileMap[propKey]; // Push the value to the array in a more concise way
+
+                array.push(typeof propVal === 'number' ? propVal : propVal.toLowerCase());
               } else {
                 $ct.globalProfileMap[propKey] = propVal;
-              } // if propVal is an array
-
-            } else {
-              if ($ct.globalProfileMap.hasOwnProperty(propKey)) {
-                array = $ct.globalProfileMap[propKey];
               }
-              /**
-               * checks for case sensitive inputs and filters the same ones
-               */
+            } else {
+              // Check if propVal is an array
+              if ($ct.globalProfileMap.hasOwnProperty(propKey)) {
+                array = Array.isArray($ct.globalProfileMap[propKey]) ? $ct.globalProfileMap[propKey] : [$ct.globalProfileMap[propKey]];
+              } // Check for case-sensitive inputs and filter the same ones
 
 
               for (var i = 0; i < propVal.length; i++) {
@@ -3033,14 +3038,17 @@ var CleverTapKit = (function (exports) {
                 } else if (typeof propVal[i] === 'number' && array.includes(propVal[i]) || typeof propVal[i] === 'string' && array.includes(propVal[i].toLowerCase())) {
                   console.error('Values already included');
                 } else {
-                  console.error('array supports only string or number type values');
+                  console.error('Array supports only string or number type values');
                 }
-              }
+              } // Update globalProfileMap with the array
+
 
               $ct.globalProfileMap[propKey] = array;
-            }
+            } // Save to local storage or cookie
 
-            StorageManager.saveToLSorCookie(PR_COOKIE, $ct.globalProfileMap);
+
+            StorageManager.saveToLSorCookie(PR_COOKIE, $ct.globalProfileMap); // Call the sendMultiValueData function
+
             this.sendMultiValueData(propKey, propVal, command);
           }
           /**
@@ -4264,7 +4272,7 @@ var CleverTapKit = (function (exports) {
             selectedCategoryTitleColor = _ref2.selectedCategoryTitleColor,
             selectedCategoryBorderColor = _ref2.selectedCategoryBorderColor,
             headerCategoryHeight = _ref2.headerCategoryHeight;
-        return "\n      <style id=\"webInboxStyles\">\n        #inbox {\n          width: 100%;\n          position: fixed;\n          background-color: #fff; \n          display: none; \n          box-shadow: 0px 2px 10px 0px #d7d7d791;\n          background-color: ".concat(panelBackgroundColor, "; \n          border: 1px solid ").concat(panelBorderColor, ";\n          top: 0;\n          left: 0;\n          height: 100%;\n          overflow: auto;\n          z-index: 1;\n          box-sizing: content-box;\n          border-radius: 4px;\n        }\n  \n        #emptyInboxMsg {\n          display: block;\n          padding: 10px;\n          text-align: center;\n          color: black;\n        }\n  \n        #header {\n          height: 36px; \n          width: 100%; \n          display: flex; \n          justify-content: center; \n          align-items: center; \n          background-color: ").concat(headerBackgroundColor, "; \n          background-color: var(--card-bg, ").concat(headerBackgroundColor, ");\n          color: ").concat(headerTitleColor, "\n        }\n  \n        #closeInbox {\n          font-size: 20px; \n          margin-right: 12px; \n          color: ").concat(closeIconColor, "; \n          cursor: pointer;\n        }\n  \n        #headerTitle {\n          font-size: 14px; \n          line-height: 20px; \n          flex-grow: 1; \n          font-weight: 700; \n          text-align: center;\n          flex-grow: 1;\n          text-align: center;\n        }\n  \n        #categoriesContainer {\n          padding: 16px 16px 0 16px; \n          height: 32px; \n          display: flex;\n          scroll-behavior: smooth;\n          position: relative;\n        }\n\n        #categoriesWrapper {\n          height: 32px; \n          overflow-x: scroll;\n          display: flex;\n          white-space: nowrap;\n          scrollbar-width: none;\n        }\n\n        #categoriesWrapper::-webkit-scrollbar {\n          display: none;\n        }\n  \n        #leftArrow, #rightArrow {\n          height: 32px;\n          align-items: center;\n          font-weight: 700;\n          position: absolute;\n          z-index: 2;\n          pointer-events: auto;\n          cursor: pointer;\n          display: none;\n        }\n\n        #leftArrow {\n          left: 0;\n          padding-left: 4px;\n          padding-right: 16px;\n          background: linear-gradient(90deg, ").concat(panelBackgroundColor, " 0%, ").concat(panelBackgroundColor, "99 80%, ").concat(panelBackgroundColor, "0d 100%);\n        }\n\n        #rightArrow {\n          right: 0;\n          padding-right: 4px;\n          padding-left: 16px;\n          background: linear-gradient(-90deg, ").concat(panelBackgroundColor, " 0%, ").concat(panelBackgroundColor, "99 80%, ").concat(panelBackgroundColor, "0d 100%);\n        }\n\n        [id^=\"category-\"] {\n          display: flex; \n          flex: 1 1 0; \n          justify-content: center; \n          align-items: center; \n          font-size: 14px; \n          line-height: 20px; \n          background-color: ").concat(categoriesTabColor, "; \n          color: ").concat(categoriesTitleColor, "; \n          cursor: pointer;\n          padding: 6px 24px;\n          margin: 0 3px;\n          border-radius: 16px;\n          border: ").concat(categoriesBorderColor ? '1px solid ' + categoriesBorderColor : 'none', ";\n        }\n\n        [id^=\"category-\"][selected=\"true\"] {\n          background-color: ").concat(selectedCategoryTabColor, "; \n          color: ").concat(selectedCategoryTitleColor, "; \n          border: ").concat(selectedCategoryBorderColor ? '1px solid ' + selectedCategoryBorderColor : 'none', "\n        }\n  \n        #inboxCard {\n          padding: 0 16px 0 16px;\n          overflow-y: auto;\n          box-sizing: border-box;\n          margin-top: 16px;\n        }\n\n        @media only screen and (min-width: 420px) {\n          #inbox {\n            width: var(--inbox-width, 392px);\n            height: var(--inbox-height, 546px);\n            position: var(--inbox-position, fixed);\n            right: var(--inbox-right, unset);\n            bottom: var(--inbox-bottom, unset);\n            top: var(--inbox-top, unset);\n            left: var(--inbox-left, unset);\n          }\n  \n          #inboxCard {\n            height: calc(var(--inbox-height, 546px) - ").concat(headerCategoryHeight, "px); \n          }\n  \n        }\n      </style>\n      ");
+        return "\n      <style id=\"webInboxStyles\">\n        #inbox {\n          width: 100%;\n          position: fixed;\n          background-color: #fff; \n          display: none; \n          box-shadow: 0px 2px 10px 0px #d7d7d791;\n          background-color: ".concat(panelBackgroundColor, "; \n          border: 1px solid ").concat(panelBorderColor, ";\n          top: 0;\n          left: 0;\n          height: 100%;\n          overflow: auto;\n          z-index: 1;\n          box-sizing: content-box;\n          border-radius: 4px;\n        }\n  \n        #emptyInboxMsg {\n          display: block;\n          padding: 10px;\n          text-align: center;\n          color: black;\n        }\n  \n        #header {\n          height: 36px; \n          width: 100%; \n          display: flex; \n          justify-content: center; \n          align-items: center; \n          background-color: ").concat(headerBackgroundColor, "; \n          background-color: var(--card-bg, ").concat(headerBackgroundColor, ");\n          color: ").concat(headerTitleColor, "\n        }\n  \n        #closeInbox {\n          font-size: 20px; \n          margin-right: 12px; \n          color: ").concat(closeIconColor, "; \n          cursor: pointer;\n        }\n  \n        #headerTitle {\n          font-size: 14px; \n          line-height: 20px; \n          flex-grow: 1; \n          font-weight: 700; \n          text-align: center;\n          flex-grow: 1;\n          text-align: center;\n        }\n  \n        #categoriesContainer {\n          padding: 16px 16px 0 16px; \n          height: 32px; \n          display: flex;\n          scroll-behavior: smooth;\n          position: relative;\n        }\n\n        #categoriesWrapper {\n          height: 32px; \n          overflow-x: scroll;\n          display: flex;\n          white-space: nowrap;\n          scrollbar-width: none;\n        }\n\n        #categoriesWrapper::-webkit-scrollbar {\n          display: none;\n        }\n  \n        #leftArrow, #rightArrow {\n          height: 32px;\n          align-items: center;\n          font-weight: 700;\n          position: absolute;\n          z-index: 2;\n          pointer-events: auto;\n          cursor: pointer;\n          display: none;\n        }\n\n        #leftArrow {\n          left: 0;\n          padding-left: 4px;\n          padding-right: 16px;\n          background: linear-gradient(90deg, ").concat(panelBackgroundColor, " 0%, ").concat(panelBackgroundColor, "99 80%, ").concat(panelBackgroundColor, "0d 100%);\n        }\n\n        #rightArrow {\n          right: 0;\n          padding-right: 4px;\n          padding-left: 16px;\n          background: linear-gradient(-90deg, ").concat(panelBackgroundColor, " 0%, ").concat(panelBackgroundColor, "99 80%, ").concat(panelBackgroundColor, "0d 100%);\n        }\n\n        [id^=\"category-\"] {\n          display: flex; \n          flex: 1 1 0; \n          justify-content: center; \n          align-items: center; \n          font-size: 14px; \n          line-height: 20px; \n          background-color: ").concat(categoriesTabColor, "; \n          color: ").concat(categoriesTitleColor, "; \n          cursor: pointer;\n          padding: 6px 24px;\n          margin: 0 3px;\n          border-radius: 16px;\n          border: ").concat(categoriesBorderColor ? '1px solid ' + categoriesBorderColor : 'none', ";\n        }\n\n        [id^=\"category-\"][selected=\"true\"] {\n          background-color: ").concat(selectedCategoryTabColor, "; \n          color: ").concat(selectedCategoryTitleColor, "; \n          border: ").concat(selectedCategoryBorderColor ? '1px solid ' + selectedCategoryBorderColor : 'none', "\n        }\n  \n        #inboxCard {\n          padding: 0 16px 0 16px;\n          overflow-y: auto;\n          box-sizing: border-box;\n          margin-top: 16px;\n        }\n\n        @media only screen and (min-width: 480px) {\n          #inbox {\n            width: var(--inbox-width, 392px);\n            height: var(--inbox-height, 546px);\n            position: var(--inbox-position, fixed);\n            right: var(--inbox-right, unset);\n            bottom: var(--inbox-bottom, unset);\n            top: var(--inbox-top, unset);\n            left: var(--inbox-left, unset);\n          }\n  \n          #inboxCard {\n            height: calc(var(--inbox-height, 546px) - ").concat(headerCategoryHeight, "px); \n          }\n  \n        }\n      </style>\n      ");
       };
 
       var Inbox = /*#__PURE__*/function (_HTMLElement) {
@@ -4279,6 +4287,7 @@ var CleverTapKit = (function (exports) {
 
           _this = _super.call(this);
           _this.isInboxOpen = false;
+          _this.isInboxFromFlutter = false;
           _this.selectedCategory = null;
           _this.unviewedMessages = {};
           _this.unviewedCounter = 0;
@@ -4322,7 +4331,11 @@ var CleverTapKit = (function (exports) {
                   }
                 }
               } else if (_this.inboxSelector.contains(e.target) || _this.isInboxOpen) {
-                _this.toggleInbox(e);
+                if (_this.isInboxFromFlutter) {
+                  _this.isInboxFromFlutter = false;
+                } else {
+                  _this.toggleInbox(e);
+                }
               }
             };
           }();
@@ -4770,6 +4783,7 @@ var CleverTapKit = (function (exports) {
           key: "toggleInbox",
           value: function toggleInbox(e) {
             this.isInboxOpen = !this.isInboxOpen;
+            this.isInboxFromFlutter = !!(e === null || e === void 0 ? void 0 : e.rect);
 
             if (this.isInboxOpen) {
               this.inboxCard.scrollTop = 0;
@@ -5046,13 +5060,14 @@ var CleverTapKit = (function (exports) {
         var verticalScroll = document.scrollingElement.scrollTop;
         var windowWidth = window.innerWidth + horizontalScroll;
         var windowHeight = window.innerHeight + verticalScroll;
-        var selectorRect = e.target.getBoundingClientRect();
+        var selectorRect = e.rect || e.target.getBoundingClientRect();
         var selectorX = selectorRect.x + horizontalScroll;
         var selectorY = selectorRect.y + verticalScroll;
         var selectorLeft = selectorRect.left + horizontalScroll;
         var selectorRight = selectorRect.right + horizontalScroll;
-        var selectorTop = selectorRect.top + verticalScroll;
-        var selectorBottom = selectorRect.bottom + verticalScroll;
+        var selectorTop = selectorRect.top + verticalScroll; // const selectorBottom = selectorRect.bottom + verticalScroll
+
+        var selectorBottom = selectorRect.bottom;
         var selectorHeight = selectorRect.height;
         var selectorWidth = selectorRect.width;
         var selectorCenter = {
@@ -5683,7 +5698,10 @@ var CleverTapKit = (function (exports) {
           iframe.setAttribute('style', 'z-index: 2147483647; display:block; width: 100% !important; border:0px !important; border-color:none !important;');
           msgDiv.appendChild(iframe);
           var ifrm = iframe.contentWindow ? iframe.contentWindow : iframe.contentDocument.document ? iframe.contentDocument.document : iframe.contentDocument;
-          var doc = ifrm.document;
+          var doc = ifrm.document; // Dispatch event for popup box/banner close
+
+          var closeCampaign = new Event('CT_campaign_rendered');
+          document.dispatchEvent(closeCampaign);
           doc.open();
           doc.write(html);
 
@@ -5984,7 +6002,10 @@ var CleverTapKit = (function (exports) {
           iframe.setAttribute('style', 'z-index: 2147483647; display:block; height: 100% !important; width: 100% !important;min-height:80px !important;border:0px !important; border-color:none !important;');
           msgDiv.appendChild(iframe);
           var ifrm = iframe.contentWindow ? iframe.contentWindow : iframe.contentDocument.document ? iframe.contentDocument.document : iframe.contentDocument;
-          var doc = ifrm.document;
+          var doc = ifrm.document; // Dispatch event for interstitial/exit intent close
+
+          var closeCampaign = new Event('CT_campaign_rendered');
+          document.dispatchEvent(closeCampaign);
           doc.open();
           doc.write(html);
 
@@ -7697,6 +7718,10 @@ var CleverTapKit = (function (exports) {
 
           this.getSCDomain = function () {
             return _classPrivateFieldLooseBase(_this, _account$5)[_account$5].finalTargetDomain;
+          };
+
+          this.setLibrary = function (libName, libVersion) {
+            $ct.flutterVersion = _defineProperty({}, libName, libVersion);
           }; // Set the Signed Call sdk version and fire request
 
 
@@ -7801,9 +7826,13 @@ var CleverTapKit = (function (exports) {
               }
 
               messages[messageId].viewed = 1;
-              var counter = parseInt(document.getElementById('unviewedBadge').innerText) - 1;
-              document.getElementById('unviewedBadge').innerText = counter;
-              document.getElementById('unviewedBadge').style.display = counter > 0 ? 'flex' : 'none';
+
+              if (document.getElementById('unviewedBadge')) {
+                var counter = parseInt(document.getElementById('unviewedBadge').innerText) - 1;
+                document.getElementById('unviewedBadge').innerText = counter;
+                document.getElementById('unviewedBadge').style.display = counter > 0 ? 'flex' : 'none';
+              }
+
               window.clevertap.renderNotificationViewed({
                 msgId: messages[messageId].wzrk_id,
                 pivotId: messages[messageId].pivotId
@@ -7813,6 +7842,16 @@ var CleverTapKit = (function (exports) {
               saveInboxMessages(messages);
             } else {
               _classPrivateFieldLooseBase(_this, _logger$9)[_logger$9].error('No message available for message Id ' + messageId);
+            }
+          };
+          /* Mark Message as Read. messageIds should be a an array of string */
+
+
+          this.markReadInboxMessagesForIds = function (messageIds) {
+            if (Array.isArray(messageIds)) {
+              for (var id = 0; id < messageIds.length; id++) {
+                _this.markReadInboxMessage(messageIds[id]);
+              }
             }
           };
           /* Mark all messages as read
@@ -7848,6 +7887,12 @@ var CleverTapKit = (function (exports) {
             } else {
               _classPrivateFieldLooseBase(_this, _logger$9)[_logger$9].debug('All messages are already read');
             }
+          };
+
+          this.toggleInbox = function (e) {
+            var _$ct$inbox;
+
+            return (_$ct$inbox = $ct.inbox) === null || _$ct$inbox === void 0 ? void 0 : _$ct$inbox.toggleInbox(e);
           }; // method for notification viewed
 
 
@@ -8127,6 +8172,14 @@ var CleverTapKit = (function (exports) {
             _handleEmailSubscription(GROUP_SUBSCRIPTION_REQUEST_ID, reEncoded);
           };
 
+          api.isGlobalUnsubscribe = function () {
+            return $ct.globalUnsubscribe;
+          };
+
+          api.setIsGlobalUnsubscribe = function (value) {
+            $ct.globalUnsubscribe = value;
+          };
+
           api.setUpdatedCategoryLong = function (profile) {
             if (profile[categoryLongKey]) {
               $ct.updatedCategoryLong = profile[categoryLongKey];
@@ -8294,10 +8347,10 @@ var CleverTapKit = (function (exports) {
 
             var proto = document.location.protocol;
             proto = proto.replace(':', '');
-            data.af = {
-              lib: 'web-sdk-v1.6.7',
+            data.af = _objectSpread2({
+              lib: 'web-sdk-v1.6.10',
               protocol: proto
-            };
+            }, $ct.flutterVersion);
             pageLoadUrl = addToURL(pageLoadUrl, 'type', 'page');
             pageLoadUrl = addToURL(pageLoadUrl, 'd', compressData(JSON.stringify(data), _classPrivateFieldLooseBase(this, _logger$9)[_logger$9]));
 
@@ -9018,8 +9071,8 @@ var CleverTapKit = (function (exports) {
     }
 
     var SDKsettings = {
-        accountID: 'W9R-486-4W5Z',
-        region: 'eu1',
+        accountID: '445-8W7-956Z',
+        region: 'us1',
         forwardWebRequestsServerSide: false
         /* fill in SDKsettings with any particular settings or options your sdk requires in order to
         initialize, this may be apiKey, projectId, primaryCustomerType, etc. These are passed
