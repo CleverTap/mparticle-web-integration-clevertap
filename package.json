@@ -37,7 +37,7 @@
     "watchify": "^3.11.0"
   },
   "dependencies": {
-    "@mparticle/web-sdk": "^2.18.0",
+    "@mparticle/web-sdk": "^2.26.10",
     "clevertap-web-sdk": "^1.6.10"
   }
 }
